@@ -1,0 +1,49 @@
+제목 (최대 50자)
+배구 전술 보드
+
+짧은 설명 (최대 80자)
+로그인 없이 쓰는 배구 전술 보드. 컷을 만들고 재생하고, 파일로 백업합니다.
+
+자세한 설명
+배구 전술 보드는 서버와 로그인 없이 기기에만 전술을 저장하는 전술 보드입니다.
+
+• 하프코트·풀코트에서 선수와 공을 배치합니다
+• 컷을 여러 장 만들고 재생하면 움직임이 이어집니다
+• 펜·지우개·레이저로 동선을 그립니다
+• 대형 프리셋을 만들어 두고 전술에 불러옵니다
+• 백업 파일(.vpb)을 저장해 앱을 지운 뒤에도 복구할 수 있습니다
+• PC 웹과 같은 파일을 주고받을 수 있습니다 (실시간 동기화 아님)
+
+로그인, 계정, 클라우드 동기화는 없습니다.
+캡처 이미지는 이 기기에만 남고 백업 파일에는 들어가지 않습니다.
+
+카테고리
+스포츠
+
+연락처
+스토어 앱 페이지의 개발자 이메일
+
+개인정보 처리방침
+배포한 웹 주소의 /privacy.html
+예: https://(계정).github.io/(저장소명)/privacy.html
+
+웹 배포 (GitHub Pages)
+1) GitHub에 저장소를 만들고 이 프로젝트를 push
+2) Settings → Pages → Source: GitHub Actions
+3) 워크플로 .github/workflows/pages.yml 이 main/master push 때 dist를 올립니다
+4) 주소 예: https://(계정).github.io/(저장소명)/
+
+Android 릴리스
+디버그 APK: npm run android:debug
+  → android/app/build/outputs/apk/debug/app-debug.apk
+스토어용 AAB: Play Console 업로드 키로 서명한 뒤
+  cd android
+  gradlew.bat bundleRelease
+  → android/app/build/outputs/bundle/release/app-release.aab
+서명 키는 이 저장소에 넣지 않습니다.
+
+스크린샷 (전화 9:16, 1080×1920)
+store/screenshots/01-home.png
+store/screenshots/02-editor-half.png
+store/screenshots/03-backup-save.png
+다시 찍기: 개발 서버를 켠 다음 node store/capture-screenshots.mjs

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">배구 전술 보드</string>
+    <string name="title_activity_main">배구 전술 보드</string>
+    <string name="package_name">kr.volleyball.playbook</string>
+    <string name="custom_url_scheme">kr.volleyball.playbook</string>
+</resources>

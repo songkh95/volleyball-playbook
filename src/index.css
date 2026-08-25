@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #1a1a2e;
+  --color-ink-2: #16162a;
+  --color-panel: #22223a;
+  --color-line: #3d3d5c;
+  --color-court: #e87830;
+  --color-court-dark: #d26522;
+  --color-accent: #f0a05a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #1a1a2e;
+  color: #f2f2f7;
+  font-family:
+    "Pretendard",
+    "Apple SD Gothic Neo",
+    "Noto Sans KR",
+    system-ui,
+    sans-serif;
+  overscroll-behavior: none;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}

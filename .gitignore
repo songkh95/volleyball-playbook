@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+android/.gradle
+android/app/build
+android/build
+android/local.properties
+android/captures
+android/.idea
+ios/App/Pods
+ios/App/Podfile.lock
+ios/DerivedData

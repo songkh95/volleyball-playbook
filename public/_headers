@@ -1,0 +1,6 @@
+/*
+  Cache-Control: public, max-age=600
+/privacy.html
+  Cache-Control: public, max-age=86400
+/icon.png
+  Cache-Control: public, max-age=86400
