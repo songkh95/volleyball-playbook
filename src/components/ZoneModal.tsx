@@ -25,7 +25,7 @@ export function ZoneModal({ open, value, onClose, onSelect }: Props) {
             key={o.id}
             type="button"
             className={`rounded-xl py-3 text-sm font-medium ring-1 ${
-              value === o.id ? "bg-court text-ink ring-court" : "bg-ink text-white/80 ring-line"
+              value === o.id ? "bg-accent text-ink ring-accent" : "bg-ink text-white/80 ring-line"
             }`}
             onClick={() => {
               onSelect(o.id);

@@ -177,7 +177,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
         </button>
         <button
           type="button"
-          className="rounded-xl bg-court px-3 py-2 text-sm font-semibold text-ink"
+          className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-ink"
           onClick={saveNow}
         >
           저장
@@ -200,7 +200,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
           <button
             type="button"
             className={`rounded-xl py-2 text-sm ${
-              preset.court === "half" ? "bg-court font-semibold text-ink" : "text-white/70 ring-1 ring-line"
+              preset.court === "half" ? "bg-accent font-semibold text-ink" : "text-white/70 ring-1 ring-line"
             }`}
             onClick={() => setCourt("half")}
           >
@@ -209,7 +209,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
           <button
             type="button"
             className={`rounded-xl py-2 text-sm ${
-              preset.court === "full" ? "bg-court font-semibold text-ink" : "text-white/70 ring-1 ring-line"
+              preset.court === "full" ? "bg-accent font-semibold text-ink" : "text-white/70 ring-1 ring-line"
             }`}
             onClick={() => setCourt("full")}
           >
@@ -220,7 +220,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
           <button
             type="button"
             className={`rounded-xl py-2 text-sm ${
-              preset.rosterSize === 6 ? "bg-court font-semibold text-ink" : "text-white/70 ring-1 ring-line"
+              preset.rosterSize === 6 ? "bg-accent font-semibold text-ink" : "text-white/70 ring-1 ring-line"
             }`}
             onClick={() => setRoster(6)}
           >
@@ -229,7 +229,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
           <button
             type="button"
             className={`rounded-xl py-2 text-sm ${
-              preset.rosterSize === 9 ? "bg-court font-semibold text-ink" : "text-white/70 ring-1 ring-line"
+              preset.rosterSize === 9 ? "bg-accent font-semibold text-ink" : "text-white/70 ring-1 ring-line"
             }`}
             onClick={() => setRoster(9)}
           >
@@ -247,7 +247,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
           </button>
           <button
             type="button"
-            className="flex-1 rounded-xl bg-court py-2 text-sm font-semibold text-ink"
+            className="flex-1 rounded-xl bg-accent py-2 text-sm font-semibold text-ink"
             onClick={addPlayer}
           >
             선수
@@ -302,7 +302,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
         <p className="mb-5 text-sm text-white/75">대형을 저장했습니다.</p>
         <button
           type="button"
-          className="w-full rounded-xl bg-court py-3 font-semibold text-ink"
+          className="w-full rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={() => setSavedNotice(false)}
         >
           확인

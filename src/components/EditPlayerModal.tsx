@@ -95,7 +95,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
         </button>
         <button
           type="button"
-          className="flex-1 rounded-xl bg-court py-3 font-semibold text-ink"
+          className="flex-1 rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={() => onSave({ label: label.trim() || object.label, color })}
         >
           적용

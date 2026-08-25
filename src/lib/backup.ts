@@ -70,7 +70,7 @@ export function withFreshIds(bundle: BackupBundle): BackupBundle {
     fallback = uid();
     albums.push({
       id: fallback,
-      title: "가져온 전술 앨범",
+      title: "가져온 전술 프로젝트",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });

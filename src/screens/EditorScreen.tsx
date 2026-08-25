@@ -65,6 +65,8 @@ export function EditorScreen({
 }: Props) {
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(1);
+  const [speedOpen, setSpeedOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
@@ -92,6 +94,7 @@ export function EditorScreen({
   const albumDraggedRef = useRef(false);
   const playheadRef = useRef(0);
   const playingRef = useRef(false);
+  const playSpeedRef = useRef(1);
   const playRef = useRef(play);
   const undoRef = useRef<Play[]>([]);
   const eraseDidRef = useRef(false);
@@ -101,6 +104,7 @@ export function EditorScreen({
   const [undoCount, setUndoCount] = useState(0);
   playheadRef.current = playhead;
   playingRef.current = playing;
+  playSpeedRef.current = playSpeed;
   playRef.current = play;
 
   const lastCut = Math.max(0, play.cuts.length - 1);
@@ -136,13 +140,12 @@ export function EditorScreen({
     }
     let raf = 0;
     let lastTs = 0;
-    const speed = 1;
     const step = (ts: number) => {
       if (!playingRef.current) return;
       if (lastTs === 0) lastTs = ts;
       const dt = (ts - lastTs) / 1000;
       lastTs = ts;
-      const next = playheadRef.current + dt * speed;
+      const next = playheadRef.current + dt * playSpeedRef.current;
       if (next >= lastCut) {
         setPlayhead(lastCut);
         setPlaying(false);
@@ -428,7 +431,7 @@ export function EditorScreen({
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
-          className="rounded-xl px-3 py-2 text-sm text-white/80 ring-1 ring-line"
+          className="rounded-xl px-3 py-2 text-sm text-white/85"
           onClick={() => requestLeave(onBack)}
         >
           뒤로
@@ -442,26 +445,136 @@ export function EditorScreen({
         </button>
         <button
           type="button"
-          className="rounded-xl px-3 py-2 text-sm text-white/80 ring-1 ring-line"
+          className="rounded-xl px-3 py-2 text-sm text-white/85"
           onClick={() => void captureFrame()}
         >
           캡처
         </button>
         <button
           type="button"
-          className="rounded-xl px-3 py-2 text-sm text-white/80 ring-1 ring-line"
+          className="rounded-xl px-3 py-2 text-sm text-white/85"
           onClick={() => setExportOpen(true)}
         >
           영상
         </button>
         <button
           type="button"
-          className="rounded-xl bg-court px-3 py-2 text-sm font-semibold text-ink"
+          className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-ink"
           onClick={() => setSaveOpen(true)}
         >
           저장
         </button>
       </header>
+
+      <div className="pointer-events-none shrink-0 px-3 pb-4 pt-2">
+        <div className="pointer-events-auto flex max-w-full flex-col gap-1.5">
+          <div className="flex max-w-full items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <button
+              type="button"
+              className="shrink-0 px-1 py-1 text-sm font-bold text-white"
+              onClick={() => setToolsOpen((v) => !v)}
+              aria-label={toolsOpen ? "도구 접기" : "도구 펼치기"}
+            >
+              {toolsOpen ? "<" : ">"}
+            </button>
+            {toolsOpen ? (
+              <>
+                <ToolBtn
+                  active={tool === "select" && !drawOpen}
+                  onClick={() => {
+                    setTool("select");
+                    setDrawOpen(false);
+                  }}
+                >
+                  전술모드
+                </ToolBtn>
+                <ToolBtn
+                  active={drawOpen || tool === "pen" || tool === "eraser" || tool === "laser"}
+                  onClick={() => {
+                    if (drawOpen) {
+                      setDrawOpen(false);
+                      setTool("select");
+                      return;
+                    }
+                    setDrawOpen(true);
+                    if (tool === "select") setTool("pen");
+                  }}
+                >
+                  마킹모드
+                </ToolBtn>
+                <span className="mx-2.5 h-3.5 w-px shrink-0 bg-white/40" aria-hidden />
+                <ToolBtn active={showTrails} onClick={() => setShowTrails((v) => !v)}>
+                  {showTrails ? "동선 숨김" : "동선 표시"}
+                </ToolBtn>
+                <ToolBtn onClick={undo} disabled={undoCount === 0}>
+                  실행 취소
+                </ToolBtn>
+                <ToolBtn onClick={() => setZoneOpen(true)}>구역</ToolBtn>
+                <ToolBtn onClick={() => setPresetOpen(true)}>대형</ToolBtn>
+                <ToolBtn onClick={addPlayer}>선수</ToolBtn>
+              </>
+            ) : null}
+          </div>
+          {drawOpen && toolsOpen ? (
+            <div className="flex items-start gap-1">
+              <div className="pointer-events-none invisible flex shrink-0 gap-1" aria-hidden>
+                <span className="px-1 py-1 text-sm font-bold">{"<"}</span>
+                <span className="rounded-md border px-1.5 py-1 text-[9px] font-medium leading-tight whitespace-nowrap opacity-0">
+                  전술모드
+                </span>
+              </div>
+              <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg bg-white/10 px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <MarkBtn active={tool === "pen"} onClick={() => setTool("pen")}>
+                  펜
+                </MarkBtn>
+                <MarkBtn active={tool === "eraser"} onClick={() => setTool("eraser")}>
+                  지우개
+                </MarkBtn>
+                <MarkBtn active={tool === "laser"} onClick={() => setTool("laser")}>
+                  레이저
+                </MarkBtn>
+                {tool === "pen" || tool === "laser" ? (
+                  <>
+                    <span className="mx-1 h-3.5 w-px shrink-0 bg-white/25" aria-hidden />
+                    {(
+                      [
+                        ["arrow", "화살"],
+                        ["solid", "실선"],
+                        ["dashed", "점선"],
+                      ] as const
+                    ).map(([kind, label]) => (
+                      <MarkBtn
+                        key={kind}
+                        active={drawKind === kind}
+                        onClick={() => setDrawKind(kind)}
+                      >
+                        {label}
+                      </MarkBtn>
+                    ))}
+                    <span className="mx-1 h-3.5 w-px shrink-0 bg-white/25" aria-hidden />
+                    <div className="flex shrink-0 flex-nowrap items-center gap-1">
+                      {PEN_COLORS.map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          aria-label={item.label}
+                          className={`h-5 w-5 shrink-0 rounded-full ${
+                            drawColor === item.value
+                              ? "ring-2 ring-white ring-offset-1 ring-offset-[#2a2a40]"
+                              : "ring-1 ring-white/30"
+                          }`}
+                          style={{ backgroundColor: item.value }}
+                          onClick={() => setDrawColor(item.value)}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       <div className="relative min-h-0 flex-1">
         <CourtCanvas
@@ -495,119 +608,6 @@ export function EditorScreen({
             </p>
           </div>
         ) : null}
-        <div className="pointer-events-none absolute right-3 top-2 flex items-start gap-1">
-          {drawOpen && toolsOpen ? (
-            <div className="pointer-events-auto flex w-[4.75rem] flex-col gap-1 rounded-lg bg-panel/95 p-1 ring-1 ring-line">
-              <ToolBtn
-                active={tool === "pen"}
-                onClick={() => setTool("pen")}
-              >
-                펜
-              </ToolBtn>
-              <ToolBtn
-                active={tool === "eraser"}
-                onClick={() => setTool("eraser")}
-              >
-                지우개
-              </ToolBtn>
-              <ToolBtn
-                active={tool === "laser"}
-                onClick={() => setTool("laser")}
-              >
-                레이저
-              </ToolBtn>
-              {tool === "pen" || tool === "laser" ? (
-                <>
-                  <div className="grid grid-cols-3 gap-0.5">
-                    {(
-                      [
-                        ["arrow", "화살"],
-                        ["solid", "실선"],
-                        ["dashed", "점선"],
-                      ] as const
-                    ).map(([kind, label]) => (
-                      <button
-                        key={kind}
-                        type="button"
-                        className={`rounded px-0.5 py-0.5 text-[8px] font-medium ${
-                          drawKind === kind
-                            ? "bg-court text-ink"
-                            : "text-white/70 ring-1 ring-line"
-                        }`}
-                        onClick={() => setDrawKind(kind)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-3 justify-items-center gap-1 px-0.5 py-0.5">
-                    {PEN_COLORS.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        aria-label={item.label}
-                        className={`h-4 w-4 rounded-full ${
-                          drawColor === item.value
-                            ? "ring-2 ring-white ring-offset-1 ring-offset-panel"
-                            : "ring-1 ring-white/35"
-                        }`}
-                        style={{ backgroundColor: item.value }}
-                        onClick={() => setDrawColor(item.value)}
-                      />
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="pointer-events-auto flex w-[3.85rem] flex-col overflow-hidden rounded-lg bg-panel/95 ring-1 ring-line">
-            <button
-              type="button"
-              className={`px-1 py-1 text-[9px] text-white/80 ${toolsOpen ? "border-b border-line" : ""}`}
-              onClick={() => setToolsOpen((v) => !v)}
-              aria-label={toolsOpen ? "도구 접기" : "도구 펼치기"}
-            >
-              {toolsOpen ? "∧" : "∨"}
-            </button>
-            {toolsOpen ? (
-              <div className="flex flex-col gap-1 p-1">
-                <ToolBtn
-                  active={tool === "select"}
-                  onClick={() => {
-                    setTool("select");
-                    setDrawOpen(false);
-                  }}
-                >
-                  이동
-                </ToolBtn>
-                <ToolBtn
-                  active={drawOpen || tool === "pen" || tool === "eraser" || tool === "laser"}
-                  onClick={() => {
-                    if (drawOpen) {
-                      setDrawOpen(false);
-                      return;
-                    }
-                    setDrawOpen(true);
-                    if (tool === "select") setTool("pen");
-                  }}
-                >
-                  그리기
-                </ToolBtn>
-                <ToolBtn active={showTrails} onClick={() => setShowTrails((v) => !v)}>
-                  {showTrails ? "동선 숨김" : "동선 표시"}
-                </ToolBtn>
-                <ToolBtn onClick={undo} disabled={undoCount === 0}>
-                  실행 취소
-                </ToolBtn>
-                <ToolBtn onClick={() => setZoneOpen(true)}>구역</ToolBtn>
-                <ToolBtn onClick={() => setPresetOpen(true)}>대형</ToolBtn>
-                <ToolBtn onClick={addPlayer}>선수</ToolBtn>
-                <ToolBtn onClick={() => void captureFrame()}>캡처</ToolBtn>
-                <ToolBtn onClick={() => setExportOpen(true)}>영상</ToolBtn>
-              </div>
-            ) : null}
-          </div>
-        </div>
       </div>
 
       <div className="shrink-0 bg-ink-2 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
@@ -622,7 +622,7 @@ export function EditorScreen({
                 setAlbumStripOpen(next);
               }}
             >
-              같은 전술 앨범 {albumStripOpen ? "∧" : "∨"}
+              같은 전술 프로젝트 {albumStripOpen ? "∧" : "∨"}
             </button>
             {albumStripOpen ? (
               <div
@@ -707,14 +707,14 @@ export function EditorScreen({
               <div className="mb-3 mt-1 flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="shrink-0 rounded-lg bg-court px-2.5 py-1 text-[11px] font-semibold text-ink"
+                  className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink"
                   onClick={togglePlay}
                 >
                   {playing ? "정지" : "재생"}
                 </button>
                 <input
                   type="range"
-                  className="h-1.5 min-w-0 flex-1 accent-court"
+                  className="h-1.5 min-w-0 flex-1 accent-white"
                   min={0}
                   max={lastCut}
                   step={0.01}
@@ -727,12 +727,42 @@ export function EditorScreen({
                 />
                 <button
                   type="button"
-                  className="shrink-0 rounded-lg px-2 py-1 text-[10px] text-white/70 ring-1 ring-line disabled:opacity-30"
+                  className="shrink-0 rounded-lg border border-white/40 px-2 py-1 text-[10px] text-white/75 disabled:opacity-30"
                   disabled={play.cuts.length <= 1}
                   onClick={() => setConfirmDeleteCut(true)}
                 >
                   삭제
                 </button>
+                <div className="relative shrink-0">
+                  {speedOpen ? (
+                    <div className="absolute bottom-full right-0 z-20 mb-1 flex flex-col gap-0.5 rounded-lg bg-panel p-1 ring-1 ring-line">
+                      {([2, 1.5, 1.25, 1] as const).map((speed) => (
+                        <button
+                          key={speed}
+                          type="button"
+                          className={`rounded-md px-2.5 py-1 text-[10px] font-medium whitespace-nowrap ${
+                            playSpeed === speed
+                              ? "bg-white text-ink"
+                              : "text-white/75"
+                          }`}
+                          onClick={() => {
+                            setPlaySpeed(speed);
+                            setSpeedOpen(false);
+                          }}
+                        >
+                          {speed === 1 ? "1배" : `${speed}배`}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="rounded-lg border border-white/40 px-2 py-1 text-[10px] text-white/75"
+                    onClick={() => setSpeedOpen((v) => !v)}
+                  >
+                    {playSpeed === 1 ? "1배" : `${playSpeed}배`}
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-1.5 overflow-x-auto">
@@ -742,8 +772,10 @@ export function EditorScreen({
                     <button
                       key={cut.id}
                       type="button"
-                      className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
-                        active ? "bg-court text-ink" : "text-white/70 ring-1 ring-line"
+                      className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${
+                        active
+                          ? "border-white bg-white text-ink"
+                          : "border-white/40 text-white/75"
                       }`}
                       onClick={() => {
                         setPlaying(false);
@@ -760,7 +792,7 @@ export function EditorScreen({
                 })}
                 <button
                   type="button"
-                  className="shrink-0 rounded-lg px-2 py-1 text-[11px] text-white/80 ring-1 ring-line"
+                  className="shrink-0 rounded-lg border border-white/40 px-2 py-1 text-[11px] text-white/85"
                   onClick={addCut}
                 >
                   +
@@ -872,7 +904,7 @@ export function EditorScreen({
         <p className="mb-5 text-sm text-white/75">{captureNotice}</p>
         <button
           type="button"
-          className="w-full rounded-xl bg-court py-3 font-semibold text-ink"
+          className="w-full rounded-xl bg-white py-3 font-semibold text-ink"
           onClick={() => setCaptureNotice(null)}
         >
           확인
@@ -893,7 +925,7 @@ export function EditorScreen({
         <div className="grid gap-2">
           <button
             type="button"
-            className="rounded-xl bg-court py-3 font-semibold text-ink disabled:opacity-40"
+            className="rounded-xl bg-white py-3 font-semibold text-ink disabled:opacity-40"
             disabled={exportBusy}
             onClick={() => void exportTimeline("gif")}
           >
@@ -902,7 +934,7 @@ export function EditorScreen({
           {detectVideoFormat() ? (
             <button
               type="button"
-              className="rounded-xl bg-ink py-3 text-white/85 ring-1 ring-line disabled:opacity-40"
+              className="rounded-xl border border-white/40 bg-ink py-3 text-white/85 disabled:opacity-40"
               disabled={exportBusy}
               onClick={() => void exportTimeline("video")}
             >
@@ -952,8 +984,30 @@ function ToolBtn({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`w-full rounded-md px-1 py-1 text-center text-[9px] font-medium leading-tight disabled:opacity-30 ${
-        active ? "bg-court text-ink" : "text-white/75 ring-1 ring-line"
+      className={`inline-flex shrink-0 items-center justify-center rounded-md border px-1.5 py-1 text-center text-[9px] font-medium leading-tight whitespace-nowrap disabled:opacity-30 ${
+        active ? "border-white text-white" : "border-white/40 text-white/80"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MarkBtn({
+  children,
+  onClick,
+  active,
+}: {
+  children: string;
+  onClick: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 rounded px-1.5 py-1 text-center text-[9px] font-medium leading-tight whitespace-nowrap ${
+        active ? "bg-white/20 text-white" : "text-white/70"
       }`}
     >
       {children}

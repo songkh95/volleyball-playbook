@@ -36,6 +36,7 @@ import {
   savePlay,
   savePreset,
 } from "./lib/db";
+import homeBg from "./assets/home-bg.jpg";
 import { AlbumScreen } from "./screens/AlbumScreen";
 import { EditorScreen } from "./screens/EditorScreen";
 import { GalleryScreen } from "./screens/GalleryScreen";
@@ -242,6 +243,8 @@ export default function App() {
 
   const showNav = route.name === "main" || route.name === "album";
   const activeTab = route.name === "main" || route.name === "album" ? route.tab : "home";
+  const isHomeMain = route.name === "main" && route.tab === "home";
+  const showSceneBg = isHomeMain || route.name === "album";
 
   const backupOverlays = (
     <>
@@ -268,7 +271,7 @@ export default function App() {
         <p className="mb-5 text-sm text-white/75">{notice}</p>
         <button
           type="button"
-          className="w-full rounded-xl bg-court py-3 font-semibold text-ink"
+          className="w-full rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={() => setNotice(null)}
         >
           확인
@@ -338,7 +341,22 @@ export default function App() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-lg flex-col bg-ink">
+    <div className="relative h-full bg-ink">
+      {showSceneBg ? (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <img
+            src={homeBg}
+            alt=""
+            className="h-full w-full object-cover object-center"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-ink/70 via-ink/45 to-ink/75" />
+        </div>
+      ) : null}
+      <div
+        className={`relative z-10 mx-auto flex h-full w-full max-w-lg flex-col ${
+          showSceneBg ? "bg-transparent" : "bg-ink"
+        }`}
+      >
       <div className="min-h-0 flex-1">
         {route.name === "album" ? (
           album && album.id === route.albumId ? (
@@ -464,8 +482,8 @@ export default function App() {
       />
       <RenameModal
         open={createAlbumOpen}
-        title="새 전술 앨범"
-        label="전술 앨범 이름"
+        title="새 전술 프로젝트"
+        label="전술 프로젝트 이름"
         initial=""
         placeholder="예: 리시브 훈련"
         confirmLabel="만들기"
@@ -479,7 +497,7 @@ export default function App() {
       />
       <RenameModal
         open={renameAlbumOpen}
-        title="전술 앨범 이름"
+        title="전술 프로젝트 이름"
         label="이름"
         initial={album?.title ?? ""}
         confirmLabel="저장"
@@ -496,14 +514,14 @@ export default function App() {
         open={Boolean(pendingDelete)}
         title={
           pendingDelete?.kind === "album"
-            ? "전술 앨범 삭제"
+            ? "전술 프로젝트 삭제"
             : pendingDelete?.kind === "preset"
               ? "대형 삭제"
               : "전술 삭제"
         }
         message={
           pendingDelete?.kind === "album"
-            ? `‘${pendingDelete.album.title}’ 전술 앨범과 안의 전술을 모두 삭제할까요?`
+            ? `‘${pendingDelete.album.title}’ 전술 프로젝트와 안의 전술을 모두 삭제할까요?`
             : pendingDelete?.kind === "preset"
               ? `‘${pendingDelete.preset.title}’ 대형을 삭제할까요?`
               : `‘${pendingDelete?.play.title ?? ""}’ 전술을 삭제할까요? 이 기기에서만 지워집니다.`
@@ -513,6 +531,7 @@ export default function App() {
         onConfirm={() => void handleDelete()}
       />
       {backupOverlays}
+      </div>
     </div>
   );
 }

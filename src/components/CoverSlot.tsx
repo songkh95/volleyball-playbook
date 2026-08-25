@@ -86,7 +86,7 @@ export function CoverSlot({ cover, fallback, onOpen, onChange }: Props) {
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
           <button
             type="button"
-            className="rounded-xl bg-court py-3 font-semibold text-ink"
+            className="rounded-xl bg-accent py-3 font-semibold text-ink"
             onClick={() => galleryRef.current?.click()}
           >
             갤러리에서 선택

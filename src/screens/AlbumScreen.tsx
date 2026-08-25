@@ -36,7 +36,7 @@ export function AlbumScreen({
           ← 뒤로
         </button>
         <button type="button" className="block w-full text-left" onClick={onRename}>
-          <p className="text-xs tracking-wide text-accent">전술 앨범</p>
+          <p className="text-xs tracking-wide text-accent">전술 프로젝트</p>
           <h1 className="mt-1 text-2xl font-bold">{album.title}</h1>
           <p className="mt-1 text-xs text-white/45">이름을 눌러 수정할 수 있습니다.</p>
         </button>
@@ -45,7 +45,7 @@ export function AlbumScreen({
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         {plays.length === 0 ? (
           <div className="mb-4 rounded-2xl bg-panel p-4 text-sm text-white/60 ring-1 ring-line">
-            이 전술 앨범에 전술이 없습니다. 새 전술 보드를 만들어 주세요.
+            이 전술 프로젝트에 전술이 없습니다. 새 전술 보드를 만들어 주세요.
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-3">

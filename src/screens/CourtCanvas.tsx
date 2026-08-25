@@ -15,9 +15,9 @@ import type {
 
 type CourtRect = { x: number; y: number; w: number; h: number };
 
-const COURT_FIT = 0.86;
+const COURT_FIT = 0.82;
 const LASER_MS = 1300;
-const MIN_ZOOM = 1;
+const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 4;
 
 type LaserMark = {
@@ -666,7 +666,14 @@ function yieldFrame() {
 
 function clampZoom(z: Zoom, cssW: number, cssH: number): Zoom {
   const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z.scale));
-  if (scale <= 1.001) return { scale: 1, tx: 0, ty: 0 };
+  if (Math.abs(scale - 1) < 0.001) return { scale: 1, tx: 0, ty: 0 };
+  if (scale < 1) {
+    return {
+      scale,
+      tx: (cssW * (1 - scale)) / 2,
+      ty: (cssH * (1 - scale)) / 2,
+    };
+  }
   return {
     scale,
     tx: Math.min(0, Math.max(cssW - cssW * scale, z.tx)),

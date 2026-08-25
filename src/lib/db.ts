@@ -117,7 +117,7 @@ async function runMigration(): Promise<void> {
   if (albums.length === 0 && needsAlbum) {
     const album: Album = {
       id: uid(),
-      title: "기본 앨범",
+      title: "기본 프로젝트",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -136,7 +136,9 @@ async function runMigration(): Promise<void> {
     }
   }
 
-  const defaults = albums.filter((a) => a.title === "기본 앨범");
+  const defaults = albums.filter(
+    (a) => a.title === "기본 프로젝트" || a.title === "기본 앨범",
+  );
   if (defaults.length > 1) {
     const latestPlays = await listPlays();
     const keep =

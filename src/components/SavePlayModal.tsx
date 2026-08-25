@@ -43,7 +43,7 @@ export function SavePlayModal({
   }
 
   async function addAlbum() {
-    const id = await onCreateAlbum(newAlbum.trim() || "새 전술 앨범");
+    const id = await onCreateAlbum(newAlbum.trim() || "새 전술 프로젝트");
     setSelected(id);
     setNewAlbum("");
   }
@@ -59,9 +59,11 @@ export function SavePlayModal({
         onChange={(e) => setName(e.target.value)}
       />
 
-      <p className="mb-2 text-sm text-white/70">전술 앨범</p>
+      <p className="mb-2 text-sm text-white/70">전술 프로젝트</p>
       {albums.length === 0 ? (
-        <p className="mb-3 text-xs text-white/50">전술 앨범이 없습니다. 아래에서 먼저 만들어 주세요.</p>
+        <p className="mb-3 text-xs text-white/50">
+          전술 프로젝트가 없습니다. 아래에서 먼저 만들어 주세요.
+        </p>
       ) : (
         <div className="mb-3 grid max-h-40 gap-2 overflow-y-auto">
           {albums.map((a) => (
@@ -71,7 +73,7 @@ export function SavePlayModal({
               onClick={() => setSelected(a.id)}
               className={`rounded-xl px-4 py-3 text-left text-sm ring-1 ${
                 selected === a.id
-                  ? "bg-court font-semibold text-ink ring-court"
+                  ? "bg-accent font-semibold text-ink ring-accent"
                   : "bg-ink text-white/80 ring-line"
               }`}
             >
@@ -86,7 +88,7 @@ export function SavePlayModal({
           className="min-w-0 flex-1 rounded-xl bg-ink px-3 py-2.5 text-sm outline-none ring-1 ring-line focus:ring-accent"
           value={newAlbum}
           maxLength={40}
-          placeholder="새 전술 앨범 이름"
+          placeholder="새 전술 프로젝트 이름"
           onChange={(e) => setNewAlbum(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") void addAlbum();
@@ -97,14 +99,14 @@ export function SavePlayModal({
           className="shrink-0 rounded-xl px-3 py-2.5 text-sm text-white/80 ring-1 ring-line"
           onClick={() => void addAlbum()}
         >
-          앨범 만들기
+          프로젝트 만들기
         </button>
       </div>
 
       <div className="grid gap-2">
         <button
           type="button"
-          className="rounded-xl bg-court py-3 font-semibold text-ink disabled:opacity-40"
+          className="rounded-xl bg-accent py-3 font-semibold text-ink disabled:opacity-40"
           disabled={!album}
           onClick={() => onSave(payload())}
         >
@@ -119,7 +121,8 @@ export function SavePlayModal({
           저장 후 새 작업
         </button>
         <p className="text-center text-[11px] leading-relaxed text-white/40">
-          저장 후 새 작업은 지금 내용을 전술 앨범에 두고, 같은 상태로 새 전술을 이어갑니다.
+          저장 후 새 작업은 지금 내용을 전술 프로젝트에 두고, 같은 상태로 새 전술을
+          이어갑니다.
         </p>
         <button type="button" className="rounded-xl py-3 text-sm text-white/60" onClick={onClose}>
           취소

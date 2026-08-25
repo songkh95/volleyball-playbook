@@ -19,7 +19,7 @@ export function ImportBackupModal({ open, count, onClose, onAdd, onReplace }: Pr
       <div className="grid gap-2">
         <button
           type="button"
-          className="rounded-xl bg-court py-3 font-semibold text-ink"
+          className="rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={onAdd}
         >
           목록에 추가

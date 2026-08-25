@@ -129,7 +129,7 @@ export function createAlbum(title: string): Album {
   const now = Date.now();
   return {
     id: uid(),
-    title: title.trim() || "새 전술 앨범",
+    title: title.trim() || "새 전술 프로젝트",
     createdAt: now,
     updatedAt: now,
   };

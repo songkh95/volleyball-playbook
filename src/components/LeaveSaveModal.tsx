@@ -23,7 +23,7 @@ export function LeaveSaveModal({
       <div className="grid gap-2">
         <button
           type="button"
-          className="rounded-xl bg-court py-3 font-semibold text-ink"
+          className="rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={onSave}
         >
           저장

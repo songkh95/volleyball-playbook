@@ -61,7 +61,7 @@ export function CreatePlayModal({ open, onClose, onCreate }: Props) {
         </button>
         <button
           type="button"
-          className="flex-1 rounded-xl bg-court py-3 font-semibold text-ink"
+          className="flex-1 rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={submit}
         >
           만들기
@@ -85,7 +85,7 @@ function Choice({
       type="button"
       onClick={onClick}
       className={`rounded-xl py-3 text-sm font-medium ring-1 ${
-        active ? "bg-court text-ink ring-court" : "bg-ink text-white/80 ring-line"
+        active ? "bg-accent text-ink ring-accent" : "bg-ink text-white/80 ring-line"
       }`}
     >
       {children}

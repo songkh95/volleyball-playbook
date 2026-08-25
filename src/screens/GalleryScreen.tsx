@@ -183,7 +183,7 @@ export function GalleryScreen({
         </section>
 
         <section className="mt-6 border-t border-line pt-6">
-          <h2 className="mb-3 text-sm font-semibold text-white/80">전술 앨범</h2>
+          <h2 className="mb-3 text-sm font-semibold text-white/80">전술 프로젝트</h2>
           {groupedPlays.length === 0 ? (
             <p className="text-sm text-white/45">저장된 전술이 없습니다.</p>
           ) : (
@@ -300,7 +300,7 @@ function CaptureViewer({
       <div className="grid gap-2">
         <button
           type="button"
-          className="rounded-xl bg-court py-3 font-semibold text-ink"
+          className="rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={() => onDownload(capture)}
         >
           기기에 다시 저장

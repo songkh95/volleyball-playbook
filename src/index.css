@@ -7,7 +7,7 @@
   --color-line: #3d3d5c;
   --color-court: #e87830;
   --color-court-dark: #d26522;
-  --color-accent: #f0a05a;
+  --color-accent: #8fb4c4;
 }
 
 html,
@@ -29,6 +29,19 @@ body,
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+*,
+*::before,
+*::after {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 input,

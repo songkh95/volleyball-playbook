@@ -68,7 +68,7 @@ export function HomeScreen({
           </div>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-white/45">
-          전술 앨범을 먼저 만들고 그 안에 전술을 넣으세요. 대형 프리셋은 아래에서
+          전술 프로젝트를 먼저 만들고 그 안에 전술을 넣으세요. 대형 프리셋은 아래에서
           만들어 전술 보드에서 불러올 수 있습니다.
         </p>
         <a
@@ -81,20 +81,20 @@ export function HomeScreen({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <section className="mb-7">
-          <h2 className="mb-3 text-sm font-semibold text-white/80">전술 앨범</h2>
+          <h2 className="mb-3 text-sm font-semibold text-white/80">전술 프로젝트</h2>
           {albums.length === 0 ? (
             <p className="mb-3 text-xs leading-relaxed text-white/45">
-              전술 앨범이 없습니다. 먼저 앨범을 만든 뒤 전술 보드를 추가하세요.
+              전술 프로젝트가 없습니다. 먼저 프로젝트를 만든 뒤 전술 보드를 추가하세요.
             </p>
           ) : null}
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={onNewAlbum}
-              className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line text-white/70"
+              className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/25 bg-black/25 text-white/80"
             >
               <span className="text-4xl font-light leading-none">+</span>
-              <span className="mt-2 text-sm">새 전술 앨범</span>
+              <span className="mt-2 text-sm">새 전술 프로젝트</span>
             </button>
             {albums.map((album) => {
               const sample = firstPlay(album.id);
@@ -165,7 +165,7 @@ export function HomeScreen({
                 <button
                   type="button"
                   onClick={onNewPreset}
-                  className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line text-white/70"
+                  className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/25 bg-black/25 text-white/80"
                 >
                   <span className="text-4xl font-light leading-none">+</span>
                   <span className="mt-2 text-sm">새 대형</span>
