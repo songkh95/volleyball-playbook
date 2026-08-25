@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CoverSlot } from "../components/CoverSlot";
 import type { Album, FormationPreset, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -6,9 +7,11 @@ type Props = {
   albums: Album[];
   presets: FormationPreset[];
   plays: Play[];
+  covers: Record<string, Blob>;
   onNewAlbum: () => void;
   onOpenAlbum: (id: string) => void;
   onDeleteAlbum: (album: Album) => void;
+  onCoverChange: (id: string, kind: "album" | "play", blob: Blob | null) => void;
   onNewPreset: () => void;
   onOpenPreset: (id: string) => void;
   onDeletePreset: (preset: FormationPreset) => void;
@@ -20,9 +23,11 @@ export function HomeScreen({
   albums,
   presets,
   plays,
+  covers,
   onNewAlbum,
   onOpenAlbum,
   onDeleteAlbum,
+  onCoverChange,
   onNewPreset,
   onOpenPreset,
   onDeletePreset,
@@ -33,6 +38,10 @@ export function HomeScreen({
 
   function playCount(albumId: string) {
     return plays.filter((p) => p.albumId === albumId).length;
+  }
+
+  function firstPlay(albumId: string) {
+    return plays.find((p) => p.albumId === albumId);
   }
 
   return (
@@ -87,29 +96,48 @@ export function HomeScreen({
               <span className="text-4xl font-light leading-none">+</span>
               <span className="mt-2 text-sm">새 전술 앨범</span>
             </button>
-            {albums.map((album) => (
-              <article
-                key={album.id}
-                className="relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl bg-panel ring-1 ring-line"
-              >
-                <button
-                  type="button"
-                  className="flex min-h-0 flex-1 flex-col p-3 text-left"
-                  onClick={() => onOpenAlbum(album.id)}
+            {albums.map((album) => {
+              const sample = firstPlay(album.id);
+              return (
+                <article
+                  key={album.id}
+                  className="relative flex aspect-[3/4] flex-col rounded-2xl bg-panel ring-1 ring-line"
                 >
-                  <div className="min-h-0 flex-1 rounded-xl bg-court/80" />
-                  <h3 className="mt-2 truncate text-sm font-semibold">{album.title}</h3>
-                  <p className="text-xs text-white/50">전술 {playCount(album.id)}개</p>
-                </button>
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"
-                  onClick={() => onDeleteAlbum(album)}
-                >
-                  삭제
-                </button>
-              </article>
-            ))}
+                  <div className="flex min-h-0 flex-1 flex-col p-3">
+                    <CoverSlot
+                      cover={covers[album.id]}
+                      onOpen={() => onOpenAlbum(album.id)}
+                      onChange={(blob) => onCoverChange(album.id, "album", blob)}
+                      fallback={
+                        sample ? (
+                          <CourtThumb
+                            court={sample.court}
+                            objects={sample.cuts[0]?.objects ?? []}
+                          />
+                        ) : (
+                          <div className="h-full w-full bg-court/80" />
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="mt-2 text-left"
+                      onClick={() => onOpenAlbum(album.id)}
+                    >
+                      <h3 className="truncate text-sm font-semibold">{album.title}</h3>
+                      <p className="text-xs text-white/50">전술 {playCount(album.id)}개</p>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"
+                    onClick={() => onDeleteAlbum(album)}
+                  >
+                    삭제
+                  </button>
+                </article>
+              );
+            })}
           </div>
         </section>
 

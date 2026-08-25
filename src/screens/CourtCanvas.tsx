@@ -17,6 +17,8 @@ type CourtRect = { x: number; y: number; w: number; h: number };
 
 const COURT_FIT = 0.86;
 const LASER_MS = 1300;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
 
 type LaserMark = {
   points: { x: number; y: number }[];
@@ -44,8 +46,15 @@ function startLaserLoop(
   rafRef.current = window.requestAnimationFrame(tick);
 }
 
+export type CourtViewSnap = {
+  objects: CourtObject[];
+  trails: Trail[];
+  strokes: Stroke[];
+};
+
 export type CourtCanvasHandle = {
   toPngBlob: () => Promise<Blob>;
+  captureViews: (views: CourtViewSnap[]) => Promise<ImageData[]>;
 };
 
 type Props = {
@@ -126,6 +135,17 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   const laserRafRef = useRef(0);
   const ballSpinRef = useRef(new Map<string, number>());
   const lastBallPosRef = useRef(new Map<string, { x: number; y: number }>());
+  const zoomRef = useRef({ scale: 1, tx: 0, ty: 0 });
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{
+    dist: number;
+    scale: number;
+    tx: number;
+    ty: number;
+  } | null>(null);
+  const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  const pinchUsedRef = useRef(false);
+  const lastTapRef = useRef({ t: 0, x: 0, y: 0 });
 
   objectsRef.current = objects;
   trailsRef.current = trails;
@@ -159,51 +179,25 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const meters = courtMeters(courtRef.current);
-    const scale = Math.min(cssW / meters.width, cssH / meters.length) * COURT_FIT;
-    const w = meters.width * scale;
-    const h = meters.length * scale;
-    const x = (cssW - w) / 2;
-    const y = (cssH - h) / 2;
-    rectRef.current = { x, y, w, h };
-
-    ctx.fillStyle = "#1a1a2e";
-    ctx.fillRect(0, 0, cssW, cssH);
-    drawCourt(ctx, rectRef.current, courtRef.current);
-    drawZones(ctx, rectRef.current, courtRef.current, zoneRef.current);
-    for (const stroke of strokesRef.current) {
-      const kind = resolveStrokeKind(stroke);
-      drawStroke(ctx, rectRef.current, stroke.points, {
-        color: stroke.color || "#ffffff",
-        kind,
-        width: stroke.width,
-      });
-    }
-    if (livePenRef.current.length > 1) {
-      drawStroke(ctx, rectRef.current, livePenRef.current, {
-        color: liveStyleRef.current.color,
-        kind: liveStyleRef.current.kind,
-        glow: liveStyleRef.current.laser,
-      });
-    }
-    const now = performance.now();
-    for (const laser of lasersRef.current) {
-      const t = (now - laser.born) / LASER_MS;
-      if (t >= 1) continue;
-      drawStroke(ctx, rectRef.current, laser.points, {
-        color: laser.color,
-        kind: laser.kind,
-        alpha: 1 - t,
-        glow: true,
-      });
-    }
-    for (const trail of trailsRef.current) {
-      drawTrail(ctx, rectRef.current, trail);
-    }
-    for (const obj of objectsRef.current) {
-      drawObject(ctx, rectRef.current, obj, ballSpinRef.current, lastBallPosRef.current);
-    }
+    rectRef.current = paintScene(
+      ctx,
+      cssW,
+      cssH,
+      zoomRef.current,
+      {
+        court: courtRef.current,
+        objects: objectsRef.current,
+        trails: trailsRef.current,
+        strokes: strokesRef.current,
+        zoneMode: zoneRef.current,
+        livePen: livePenRef.current,
+        liveStyle: liveStyleRef.current,
+        lasers: lasersRef.current,
+        now: performance.now(),
+      },
+      ballSpinRef.current,
+      lastBallPosRef.current,
+    );
   };
 
   useEffect(() => {
@@ -219,6 +213,36 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   useEffect(() => {
     paint.current();
   }, [objects, court, trails, strokes, zoneMode, drawColor, drawKind]);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const box = canvas.getBoundingClientRect();
+      const cx = e.clientX - box.left;
+      const cy = e.clientY - box.top;
+      const prev = zoomRef.current;
+      const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+      const nextScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev.scale * factor));
+      const wx = (cx - prev.tx) / prev.scale;
+      const wy = (cy - prev.ty) / prev.scale;
+      zoomRef.current = clampZoom(
+        {
+          scale: nextScale,
+          tx: cx - wx * nextScale,
+          ty: cy - wy * nextScale,
+        },
+        wrap.clientWidth,
+        wrap.clientHeight,
+      );
+      paint.current();
+    };
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+    return () => wrap.removeEventListener("wheel", onWheel);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -240,6 +264,52 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         }, "image/png");
       });
     },
+    async captureViews(views) {
+      const wrap = wrapRef.current;
+      if (!wrap || wrap.clientWidth < 8 || wrap.clientHeight < 8) {
+        throw new Error("코트를 캡처할 수 없습니다.");
+      }
+      await waitForBallSprite();
+      const srcW = wrap.clientWidth;
+      const srcH = wrap.clientHeight;
+      const scale = Math.min(1, 360 / srcW);
+      const w = Math.max(1, Math.round(srcW * scale));
+      const h = Math.max(1, Math.round(srcH * scale));
+      const off = document.createElement("canvas");
+      off.width = w;
+      off.height = h;
+      const ctx = off.getContext("2d", { alpha: false });
+      if (!ctx) throw new Error("코트를 캡처할 수 없습니다.");
+      const ballSpin = new Map<string, number>();
+      const lastBallPos = new Map<string, { x: number; y: number }>();
+      const frames: ImageData[] = [];
+      const zoom = { scale: 1, tx: 0, ty: 0 };
+      for (let i = 0; i < views.length; i++) {
+        const view = views[i];
+        paintScene(
+          ctx,
+          w,
+          h,
+          zoom,
+          {
+            court: courtRef.current,
+            objects: view.objects,
+            trails: view.trails,
+            strokes: view.strokes,
+            zoneMode: zoneRef.current,
+            livePen: [],
+            liveStyle: liveStyleRef.current,
+            lasers: [],
+            now: 0,
+          },
+          ballSpin,
+          lastBallPos,
+        );
+        frames.push(ctx.getImageData(0, 0, w, h));
+        if (i % 2 === 1) await yieldFrame();
+      }
+      return frames;
+    },
   }));
 
   return (
@@ -252,21 +322,56 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         className="block h-full w-full touch-none"
         onPointerDown={(e) => {
           onPointerStart?.();
-          if (!interactiveRef.current) return;
           const canvas = canvasRef.current;
-          if (!canvas) return;
+          const wrap = wrapRef.current;
+          if (!canvas || !wrap) return;
+          pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
           canvas.setPointerCapture(e.pointerId);
+          if (pointersRef.current.size >= 2) {
+            pinchUsedRef.current = true;
+            dragRef.current = null;
+            eraseRef.current = false;
+            penRef.current = null;
+            livePenRef.current = [];
+            panRef.current = null;
+            const pts = [...pointersRef.current.values()];
+            pinchRef.current = {
+              dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+              scale: zoomRef.current.scale,
+              tx: zoomRef.current.tx,
+              ty: zoomRef.current.ty,
+            };
+            paint.current();
+            e.preventDefault();
+            return;
+          }
+          if (!interactiveRef.current) return;
           const toolNow = toolRef.current;
+          const hit = hitTest(e, canvas, rectRef.current, objectsRef.current, zoomRef.current);
+          if (zoomRef.current.scale > 1.001 && toolNow === "select" && !hit) {
+            panRef.current = {
+              x: e.clientX,
+              y: e.clientY,
+              tx: zoomRef.current.tx,
+              ty: zoomRef.current.ty,
+            };
+            e.preventDefault();
+            return;
+          }
           if (toolNow === "eraser") {
             eraseRef.current = true;
             onEraseBegin?.();
-            const p = clampToCanvas(clientToNorm(e, canvas, rectRef.current), rectRef.current, canvas);
+            const p = clampToCanvas(
+              clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+              rectRef.current,
+              canvas,
+            );
             onEraseAt?.(p.x, p.y);
             e.preventDefault();
             return;
           }
           if (toolNow === "pen" || toolNow === "laser") {
-            const p = clientToNorm(e, canvas, rectRef.current);
+            const p = clientToNorm(e, canvas, rectRef.current, zoomRef.current);
             const color = drawColorRef.current;
             const kind = drawKindRef.current;
             const laser = toolNow === "laser";
@@ -277,23 +382,74 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             e.preventDefault();
             return;
           }
-          const hit = hitTest(e, canvas, rectRef.current, objectsRef.current);
           if (!hit) return;
           dragRef.current = { id: hit.id, moved: false, x: e.clientX, y: e.clientY };
           e.preventDefault();
         }}
         onPointerMove={(e) => {
-          if (!interactiveRef.current) return;
           const canvas = canvasRef.current;
-          if (!canvas) return;
+          const wrap = wrapRef.current;
+          if (!canvas || !wrap) return;
+          if (pointersRef.current.has(e.pointerId)) {
+            pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          }
+          if (pinchRef.current && pointersRef.current.size >= 2) {
+            const pts = [...pointersRef.current.values()];
+            const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+            const start = pinchRef.current;
+            const nextScale = Math.min(
+              MAX_ZOOM,
+              Math.max(MIN_ZOOM, start.scale * (dist / start.dist)),
+            );
+            const box = canvas.getBoundingClientRect();
+            const cx = (pts[0].x + pts[1].x) / 2 - box.left;
+            const cy = (pts[0].y + pts[1].y) / 2 - box.top;
+            const wx = (cx - start.tx) / start.scale;
+            const wy = (cy - start.ty) / start.scale;
+            zoomRef.current = clampZoom(
+              {
+                scale: nextScale,
+                tx: cx - wx * nextScale,
+                ty: cy - wy * nextScale,
+              },
+              wrap.clientWidth,
+              wrap.clientHeight,
+            );
+            paint.current();
+            e.preventDefault();
+            return;
+          }
+          if (panRef.current) {
+            zoomRef.current = clampZoom(
+              {
+                scale: zoomRef.current.scale,
+                tx: panRef.current.tx + e.clientX - panRef.current.x,
+                ty: panRef.current.ty + e.clientY - panRef.current.y,
+              },
+              wrap.clientWidth,
+              wrap.clientHeight,
+            );
+            paint.current();
+            e.preventDefault();
+            return;
+          }
+          if (!interactiveRef.current) return;
           if (eraseRef.current) {
-            const p = clampToCanvas(clientToNorm(e, canvas, rectRef.current), rectRef.current, canvas);
+            const p = clampToCanvas(
+              clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+              rectRef.current,
+              canvas,
+            );
             onEraseAt?.(p.x, p.y);
             e.preventDefault();
             return;
           }
           if (penRef.current) {
-            const p = clampToCanvas(clientToNorm(e, canvas, rectRef.current), rectRef.current, canvas);
+            const p = clampToCanvas(
+              clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+              rectRef.current,
+              canvas,
+            );
             const last = penRef.current.points[penRef.current.points.length - 1];
             if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 0.004) {
               penRef.current.points.push(p);
@@ -314,11 +470,26 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             drag.moved = true;
             onMoveBegin?.();
           }
-          const p = clampToCanvas(clientToNorm(e, canvas, rectRef.current), rectRef.current, canvas);
+          const p = clampToCanvas(
+            clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+            rectRef.current,
+            canvas,
+          );
           onMove(drag.id, p.x, p.y);
           e.preventDefault();
         }}
         onPointerUp={(e) => {
+          pointersRef.current.delete(e.pointerId);
+          if (pointersRef.current.size < 2) pinchRef.current = null;
+          if (pointersRef.current.size === 0) {
+            const pinched = pinchUsedRef.current;
+            pinchUsedRef.current = false;
+            panRef.current = null;
+            if (pinched) {
+              e.preventDefault();
+              return;
+            }
+          }
           if (eraseRef.current) {
             eraseRef.current = false;
             e.preventDefault();
@@ -351,14 +522,33 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           }
           const drag = dragRef.current;
           dragRef.current = null;
-          if (!drag) return;
-          if (!drag.moved) {
-            const obj = objectsRef.current.find((o) => o.id === drag.id);
-            if (obj?.kind === "player") onSelectPlayer(obj.id);
+          if (drag) {
+            if (!drag.moved) {
+              const obj = objectsRef.current.find((o) => o.id === drag.id);
+              if (obj?.kind === "player") onSelectPlayer(obj.id);
+            }
+            e.preventDefault();
+            return;
+          }
+          if (pointersRef.current.size === 0) {
+            if (
+              performance.now() - lastTapRef.current.t < 280 &&
+              Math.hypot(e.clientX - lastTapRef.current.x, e.clientY - lastTapRef.current.y) < 28
+            ) {
+              zoomRef.current = { scale: 1, tx: 0, ty: 0 };
+              lastTapRef.current.t = 0;
+              paint.current();
+            } else {
+              lastTapRef.current = { t: performance.now(), x: e.clientX, y: e.clientY };
+            }
           }
           e.preventDefault();
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(e) => {
+          pointersRef.current.delete(e.pointerId);
+          pinchRef.current = null;
+          panRef.current = null;
+          pinchUsedRef.current = false;
           dragRef.current = null;
           eraseRef.current = false;
           penRef.current = null;
@@ -370,14 +560,129 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   );
 });
 
+type Zoom = { scale: number; tx: number; ty: number };
+
+type Scene = {
+  court: CourtType;
+  objects: CourtObject[];
+  trails: Trail[];
+  strokes: Stroke[];
+  zoneMode: ZoneMode;
+  livePen: { x: number; y: number }[];
+  liveStyle: { color: string; kind: StrokeKind; laser: boolean };
+  lasers: LaserMark[];
+  now: number;
+};
+
+function paintScene(
+  ctx: CanvasRenderingContext2D,
+  cssW: number,
+  cssH: number,
+  zoom: Zoom,
+  scene: Scene,
+  ballSpin: Map<string, number>,
+  lastBallPos: Map<string, { x: number; y: number }>,
+): CourtRect {
+  ctx.fillStyle = "#1a1a2e";
+  ctx.fillRect(0, 0, cssW, cssH);
+  ctx.save();
+  ctx.translate(zoom.tx, zoom.ty);
+  ctx.scale(zoom.scale, zoom.scale);
+
+  const meters = courtMeters(scene.court);
+  const scale = Math.min(cssW / meters.width, cssH / meters.length) * COURT_FIT;
+  const w = meters.width * scale;
+  const h = meters.length * scale;
+  const rect: CourtRect = {
+    x: (cssW - w) / 2,
+    y: (cssH - h) / 2,
+    w,
+    h,
+  };
+
+  drawCourt(ctx, rect, scene.court);
+  drawZones(ctx, rect, scene.court, scene.zoneMode);
+  for (const stroke of scene.strokes) {
+    const kind = resolveStrokeKind(stroke);
+    drawStroke(ctx, rect, stroke.points, {
+      color: stroke.color || "#ffffff",
+      kind,
+      width: stroke.width,
+    });
+  }
+  if (scene.livePen.length > 1) {
+    drawStroke(ctx, rect, scene.livePen, {
+      color: scene.liveStyle.color,
+      kind: scene.liveStyle.kind,
+      glow: scene.liveStyle.laser,
+    });
+  }
+  for (const laser of scene.lasers) {
+    const t = (scene.now - laser.born) / LASER_MS;
+    if (t >= 1) continue;
+    drawStroke(ctx, rect, laser.points, {
+      color: laser.color,
+      kind: laser.kind,
+      alpha: 1 - t,
+      glow: true,
+    });
+  }
+  for (const trail of scene.trails) {
+    drawTrail(ctx, rect, trail);
+  }
+  for (const obj of scene.objects) {
+    drawObject(ctx, rect, obj, ballSpin, lastBallPos);
+  }
+  ctx.restore();
+  return rect;
+}
+
+function waitForBallSprite() {
+  return new Promise<void>((resolve) => {
+    if (getBallSprite()) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    loadBallSprite(done);
+    window.setTimeout(done, 400);
+  });
+}
+
+function yieldFrame() {
+  return new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    window.setTimeout(resolve, 0);
+  });
+}
+
+function clampZoom(z: Zoom, cssW: number, cssH: number): Zoom {
+  const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z.scale));
+  if (scale <= 1.001) return { scale: 1, tx: 0, ty: 0 };
+  return {
+    scale,
+    tx: Math.min(0, Math.max(cssW - cssW * scale, z.tx)),
+    ty: Math.min(0, Math.max(cssH - cssH * scale, z.ty)),
+  };
+}
+
 function clientToNorm(
   e: { clientX: number; clientY: number },
   canvas: HTMLCanvasElement,
   rect: CourtRect,
+  zoom: Zoom,
 ) {
   const box = canvas.getBoundingClientRect();
-  const px = e.clientX - box.left;
-  const py = e.clientY - box.top;
+  const px = (e.clientX - box.left - zoom.tx) / zoom.scale;
+  const py = (e.clientY - box.top - zoom.ty) / zoom.scale;
   return {
     x: (px - rect.x) / rect.w,
     y: 1 - (py - rect.y) / rect.h,
@@ -407,10 +712,11 @@ function hitTest(
   canvas: HTMLCanvasElement,
   rect: CourtRect,
   objects: CourtObject[],
+  zoom: Zoom,
 ): CourtObject | null {
   const box = canvas.getBoundingClientRect();
-  const px = e.clientX - box.left;
-  const py = e.clientY - box.top;
+  const px = (e.clientX - box.left - zoom.tx) / zoom.scale;
+  const py = (e.clientY - box.top - zoom.ty) / zoom.scale;
   let best: CourtObject | null = null;
   let bestD = Infinity;
   for (const obj of objects) {

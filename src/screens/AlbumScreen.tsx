@@ -1,24 +1,29 @@
+import { CoverSlot } from "../components/CoverSlot";
 import type { Album, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
 type Props = {
   album: Album;
   plays: Play[];
+  covers: Record<string, Blob>;
   onBack: () => void;
   onRename: () => void;
   onNewPlay: () => void;
   onOpenPlay: (id: string) => void;
   onDeletePlay: (play: Play) => void;
+  onCoverChange: (id: string, kind: "album" | "play", blob: Blob | null) => void;
 };
 
 export function AlbumScreen({
   album,
   plays,
+  covers,
   onBack,
   onRename,
   onNewPlay,
   onOpenPlay,
   onDeletePlay,
+  onCoverChange,
 }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -55,25 +60,32 @@ export function AlbumScreen({
           {plays.map((play) => (
             <article
               key={play.id}
-              className="relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl bg-panel ring-1 ring-line"
+              className="relative flex aspect-[3/4] flex-col rounded-2xl bg-panel ring-1 ring-line"
             >
-              <button
-                type="button"
-                className="flex min-h-0 flex-1 flex-col p-3 text-left"
-                onClick={() => onOpenPlay(play.id)}
-              >
-                <div className="min-h-0 flex-1 overflow-hidden rounded-xl">
-                  <CourtThumb
-                    court={play.court}
-                    objects={play.cuts[0]?.objects ?? []}
-                  />
-                </div>
-                <h2 className="mt-2 truncate text-sm font-semibold">{play.title}</h2>
-                <p className="text-xs text-white/50">
-                  {play.court === "half" ? "하프" : "풀"} · {play.rosterSize}인 · 컷{" "}
-                  {play.cuts.length}
-                </p>
-              </button>
+              <div className="flex min-h-0 flex-1 flex-col p-3">
+                <CoverSlot
+                  cover={covers[play.id]}
+                  onOpen={() => onOpenPlay(play.id)}
+                  onChange={(blob) => onCoverChange(play.id, "play", blob)}
+                  fallback={
+                    <CourtThumb
+                      court={play.court}
+                      objects={play.cuts[0]?.objects ?? []}
+                    />
+                  }
+                />
+                <button
+                  type="button"
+                  className="mt-2 text-left"
+                  onClick={() => onOpenPlay(play.id)}
+                >
+                  <h2 className="truncate text-sm font-semibold">{play.title}</h2>
+                  <p className="text-xs text-white/50">
+                    {play.court === "half" ? "하프" : "풀"} · {play.rosterSize}인 · 컷{" "}
+                    {play.cuts.length}
+                  </p>
+                </button>
+              </div>
               <button
                 type="button"
                 className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"

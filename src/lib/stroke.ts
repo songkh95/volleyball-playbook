@@ -34,10 +34,10 @@ export function strokeNearPoint(
 }
 
 export const PEN_COLORS = [
-  { value: "#ffffff", label: "흰" },
-  { value: "#ffd54f", label: "노랑" },
-  { value: "#ef5350", label: "빨강" },
-  { value: "#42a5f5", label: "파랑" },
-  { value: "#66bb6a", label: "초록" },
-  { value: "#e87830", label: "주황" },
+  { value: "#ccff00", label: "형광노랑" },
+  { value: "#39ff14", label: "형광초록" },
+  { value: "#00f5ff", label: "형광청록" },
+  { value: "#ff3df5", label: "형광분홍" },
+  { value: "#7afcff", label: "형광하늘" },
+  { value: "#b8ff1a", label: "형광라임" },
 ] as const;

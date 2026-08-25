@@ -1,8 +1,14 @@
 import type { Album, FormationPreset, GalleryCapture, Play } from "../types/play";
 import { uid } from "./id";
 
+export type CoverRecord = {
+  id: string;
+  kind: "album" | "play";
+  blob: Blob;
+};
+
 const DB_NAME = "volleyball-playbook";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -20,6 +26,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("captures")) {
         db.createObjectStore("captures", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("covers")) {
+        db.createObjectStore("covers", { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -163,6 +172,7 @@ export function savePlay(play: Play) {
 export async function deletePlay(id: string) {
   const caps = await listCapturesByPlay(id);
   for (const c of caps) await deleteCapture(c.id);
+  await deleteCover(id);
   await deleteOne("plays", id);
 }
 
@@ -200,7 +210,24 @@ export function saveAlbum(album: Album) {
 export async function deleteAlbum(id: string): Promise<void> {
   const plays = await listPlaysInAlbum(id);
   for (const p of plays) await deletePlay(p.id);
+  await deleteCover(id);
   await deleteOne("albums", id);
+}
+
+export async function listCovers() {
+  try {
+    return await getAll<CoverRecord>("covers");
+  } catch {
+    return [];
+  }
+}
+
+export function saveCover(cover: CoverRecord) {
+  return putOne("covers", cover);
+}
+
+export function deleteCover(id: string) {
+  return deleteOne("covers", id);
 }
 
 export async function listPresets(): Promise<FormationPreset[]> {
@@ -231,6 +258,11 @@ export async function replaceAll(data: {
   for (const a of data.albums) await saveAlbum(a);
   for (const p of data.presets) await savePreset(p);
   for (const p of data.plays) await savePlay(p);
+  const keep = new Set([...data.albums.map((a) => a.id), ...data.plays.map((p) => p.id)]);
+  const covers = await listCovers();
+  for (const cover of covers) {
+    if (!keep.has(cover.id)) await deleteCover(cover.id);
+  }
   migrated = false;
 }
 

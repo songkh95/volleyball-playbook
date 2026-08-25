@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CoverImg } from "../components/CoverSlot";
 import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EditPlayerModal } from "../components/EditPlayerModal";
@@ -7,10 +8,16 @@ import { RenameModal } from "../components/RenameModal";
 import { SavePlayModal } from "../components/SavePlayModal";
 import { ZoneModal } from "../components/ZoneModal";
 import { Modal } from "../components/Modal";
-import { downloadPng, fileSafeName } from "../lib/capture";
-import { alignToDefault, duplicatePlay, nextCutName } from "../lib/defaultPlay";
+import { downloadBlob, downloadPng, fileSafeName } from "../lib/capture";
+import { duplicatePlay, nextCutName } from "../lib/defaultPlay";
 import { saveCapture, savePlay } from "../lib/db";
 import { isPlayDirty } from "../lib/dirty";
+import {
+  detectVideoFormat,
+  encodeGif,
+  movieViews,
+  recordVideo,
+} from "../lib/exportMovie";
 import { uid } from "../lib/id";
 import { cloneCutAfter, viewAtPlayhead } from "../lib/interpolate";
 import { applyUserPreset, newPlayer } from "../lib/presets";
@@ -27,11 +34,14 @@ import type {
 import { CourtCanvas, type CourtCanvasHandle } from "./CourtCanvas";
 import { CourtThumb } from "./CourtThumb";
 
+let albumStripOpenMemory = false;
+
 type Props = {
   play: Play;
   albumPlays: Play[];
   albums: Album[];
   presets: FormationPreset[];
+  covers: Record<string, Blob>;
   onChange: (play: Play) => void;
   onBack: () => void;
   onOpenPlay: (id: string) => void;
@@ -45,6 +55,7 @@ export function EditorScreen({
   albumPlays,
   albums,
   presets,
+  covers,
   onChange,
   onBack,
   onOpenPlay,
@@ -56,7 +67,6 @@ export function EditorScreen({
   const [playing, setPlaying] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
   const [presetOpen, setPresetOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -66,13 +76,15 @@ export function EditorScreen({
   const [tool, setTool] = useState<EditorTool>("select");
   const [drawOpen, setDrawOpen] = useState(false);
   const [drawKind, setDrawKind] = useState<StrokeKind>("arrow");
-  const [drawColor, setDrawColor] = useState("#ffffff");
+  const [drawColor, setDrawColor] = useState("#ccff00");
   const [toolsOpen, setToolsOpen] = useState(true);
-  const [albumStripOpen, setAlbumStripOpen] = useState(false);
+  const [albumStripOpen, setAlbumStripOpen] = useState(albumStripOpenMemory);
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [showTrails, setShowTrails] = useState(true);
   const [confirmDeletePlayer, setConfirmDeletePlayer] = useState(false);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const canvasRef = useRef<CourtCanvasHandle>(null);
   const albumStripRef = useRef<HTMLDivElement>(null);
@@ -255,21 +267,6 @@ export function EditorScreen({
     );
   }
 
-  function resetToFirstCut() {
-    pushUndo();
-    const i = editIndex;
-    const source =
-      i === 0
-        ? alignToDefault(play.cuts[0].objects, play.rosterSize, play.court)
-        : play.cuts[0].objects.map((o) => ({ ...o }));
-    updatePlay(
-      play.cuts.map((c, idx) =>
-        idx === i ? { ...c, objects: source, strokes: i === 0 ? [] : c.strokes } : c,
-      ),
-    );
-    setConfirmReset(false);
-  }
-
   function deletePlayer() {
     if (!editingId) return;
     pushUndo();
@@ -382,6 +379,50 @@ export function EditorScreen({
     }
   }
 
+  async function exportTimeline(kind: "gif" | "video") {
+    if (exportBusy) return;
+    setPlaying(false);
+    setExportBusy(true);
+    try {
+      const views = movieViews(playRef.current.cuts, showTrails);
+      const frames = await canvasRef.current?.captureViews(views);
+      if (!frames?.length) {
+        throw new Error("코트를 캡처할 수 없습니다.");
+      }
+      const stamp = new Date();
+      const time = `${stamp.getHours().toString().padStart(2, "0")}${stamp.getMinutes().toString().padStart(2, "0")}`;
+      let blob: Blob;
+      let ext: string;
+      if (kind === "gif") {
+        blob = await encodeGif(frames);
+        ext = "gif";
+      } else {
+        const recorded = await recordVideo(frames);
+        blob = recorded.blob;
+        ext = recorded.ext;
+      }
+      await saveCapture({
+        id: uid(),
+        playId: playRef.current.id,
+        playTitle: playRef.current.title,
+        cutName: kind === "gif" ? "GIF" : "영상",
+        createdAt: Date.now(),
+        blob,
+      });
+      downloadBlob(
+        blob,
+        `${fileSafeName(playRef.current.title)}-timeline-${time}`,
+        ext,
+      );
+      setExportOpen(false);
+      setCaptureNotice("갤러리에 저장했고, 기기로도 내려받았습니다.");
+    } catch (err) {
+      setCaptureNotice(err instanceof Error ? err.message : "저장에 실패했습니다.");
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink">
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -405,6 +446,13 @@ export function EditorScreen({
           onClick={() => void captureFrame()}
         >
           캡처
+        </button>
+        <button
+          type="button"
+          className="rounded-xl px-3 py-2 text-sm text-white/80 ring-1 ring-line"
+          onClick={() => setExportOpen(true)}
+        >
+          영상
         </button>
         <button
           type="button"
@@ -440,8 +488,15 @@ export function EditorScreen({
           onEraseBegin={eraseBegin}
           onEraseAt={eraseAt}
         />
+        {exportBusy ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
+            <p className="rounded-xl bg-panel px-4 py-3 text-sm text-white/90 ring-1 ring-line">
+              영상을 만드는 중…
+            </p>
+          </div>
+        ) : null}
         <div className="pointer-events-none absolute right-3 top-2 flex items-start gap-1">
-          {drawOpen ? (
+          {drawOpen && toolsOpen ? (
             <div className="pointer-events-auto flex w-[4.75rem] flex-col gap-1 rounded-lg bg-panel/95 p-1 ring-1 ring-line">
               <ToolBtn
                 active={tool === "pen"}
@@ -457,10 +512,7 @@ export function EditorScreen({
               </ToolBtn>
               <ToolBtn
                 active={tool === "laser"}
-                onClick={() => {
-                  setTool("laser");
-                  if (drawColor === "#ffffff") setDrawColor("#ef5350");
-                }}
+                onClick={() => setTool("laser")}
               >
                 레이저
               </ToolBtn>
@@ -551,6 +603,7 @@ export function EditorScreen({
                 <ToolBtn onClick={() => setPresetOpen(true)}>대형</ToolBtn>
                 <ToolBtn onClick={addPlayer}>선수</ToolBtn>
                 <ToolBtn onClick={() => void captureFrame()}>캡처</ToolBtn>
+                <ToolBtn onClick={() => setExportOpen(true)}>영상</ToolBtn>
               </div>
             ) : null}
           </div>
@@ -563,29 +616,34 @@ export function EditorScreen({
             <button
               type="button"
               className="px-0.5 py-0.5 text-left text-[10px] text-white/50"
-              onClick={() => setAlbumStripOpen((v) => !v)}
+              onClick={() => {
+                const next = !albumStripOpen;
+                albumStripOpenMemory = next;
+                setAlbumStripOpen(next);
+              }}
             >
               같은 전술 앨범 {albumStripOpen ? "∧" : "∨"}
             </button>
             {albumStripOpen ? (
               <div
                 ref={albumStripRef}
-                className="mt-1 flex cursor-grab touch-none select-none gap-2 overflow-x-auto active:cursor-grabbing [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                className="mt-1 flex cursor-grab select-none gap-2 overflow-x-auto active:cursor-grabbing [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                 onPointerDown={(e) => {
+                  if (e.pointerType === "touch") return;
                   const el = albumStripRef.current;
                   if (!el) return;
                   albumDraggedRef.current = false;
                   albumDragRef.current = { x: e.clientX, sl: el.scrollLeft, moved: false };
-                  el.setPointerCapture(e.pointerId);
                 }}
                 onPointerMove={(e) => {
                   const el = albumStripRef.current;
                   const drag = albumDragRef.current;
                   if (!el || !drag) return;
                   const dx = e.clientX - drag.x;
-                  if (Math.abs(dx) > 6) {
+                  if (!drag.moved && Math.abs(dx) > 10) {
                     drag.moved = true;
                     albumDraggedRef.current = true;
+                    el.setPointerCapture(e.pointerId);
                   }
                   if (drag.moved) el.scrollLeft = drag.sl - dx;
                 }}
@@ -594,6 +652,7 @@ export function EditorScreen({
                 }}
                 onPointerCancel={() => {
                   albumDragRef.current = null;
+                  albumDraggedRef.current = false;
                 }}
               >
                 {siblings.map((item) => {
@@ -602,6 +661,7 @@ export function EditorScreen({
                     <button
                       key={item.id}
                       type="button"
+                      data-play-id={item.id}
                       className={`w-[4.75rem] shrink-0 overflow-hidden rounded-lg text-left ${
                         active ? "bg-white/10" : ""
                       }`}
@@ -614,11 +674,15 @@ export function EditorScreen({
                         requestLeave(() => onOpenPlay(item.id));
                       }}
                     >
-                      <div className="h-14 overflow-hidden bg-ink">
-                        <CourtThumb
-                          court={item.court}
-                          objects={item.cuts[0]?.objects ?? []}
-                        />
+                      <div className="pointer-events-none h-14 overflow-hidden bg-ink">
+                        {covers[item.id] ? (
+                          <CoverImg blob={covers[item.id]} />
+                        ) : (
+                          <CourtThumb
+                            court={item.court}
+                            objects={item.cuts[0]?.objects ?? []}
+                          />
+                        )}
                       </div>
                       <p className="mt-2 truncate px-0.5 pb-0.5 text-[9px] text-white/75">
                         {item.title}
@@ -661,13 +725,6 @@ export function EditorScreen({
                     setPlayhead(Number(e.target.value));
                   }}
                 />
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg px-2 py-1 text-[10px] text-white/70 ring-1 ring-line"
-                  onClick={() => setConfirmReset(true)}
-                >
-                  컷1 리셋
-                </button>
                 <button
                   type="button"
                   className="shrink-0 rounded-lg px-2 py-1 text-[10px] text-white/70 ring-1 ring-line disabled:opacity-30"
@@ -747,18 +804,6 @@ export function EditorScreen({
         onClose={() => setConfirmDeleteCut(false)}
         onConfirm={deleteCut}
       />
-      <ConfirmModal
-        open={confirmReset}
-        title="첫 컷으로 리셋"
-        message={
-          editIndex === 0
-            ? "1번 컷을 처음 만든 포메이션으로 되돌릴까요? 그린 선도 지워집니다."
-            : `${editCut?.name || `Cut ${editIndex + 1}`}의 선수·공 위치를 1번 컷과 같게 맞출까요?`
-        }
-        confirmLabel="리셋"
-        onClose={() => setConfirmReset(false)}
-        onConfirm={resetToFirstCut}
-      />
       <ZoneModal
         open={zoneOpen}
         value={zoneMode}
@@ -823,7 +868,7 @@ export function EditorScreen({
           setRenameCut(null);
         }}
       />
-      <Modal open={Boolean(captureNotice)} title="캡처" onClose={() => setCaptureNotice(null)}>
+      <Modal open={Boolean(captureNotice)} title="저장" onClose={() => setCaptureNotice(null)}>
         <p className="mb-5 text-sm text-white/75">{captureNotice}</p>
         <button
           type="button"
@@ -832,6 +877,51 @@ export function EditorScreen({
         >
           확인
         </button>
+      </Modal>
+      <Modal
+        open={exportOpen}
+        title="영상으로 저장"
+        onClose={exportBusy ? undefined : () => setExportOpen(false)}
+      >
+        <p className="mb-4 text-sm leading-relaxed text-white/70">
+          컷 타임라인을 재생한 결과를 GIF나 영상 파일로 저장합니다. 갤러리에서도 볼 수
+          있습니다.
+          {play.cuts.length <= 1
+            ? " 컷이 하나면 1초 동안 같은 장면이 저장됩니다."
+            : ""}
+        </p>
+        <div className="grid gap-2">
+          <button
+            type="button"
+            className="rounded-xl bg-court py-3 font-semibold text-ink disabled:opacity-40"
+            disabled={exportBusy}
+            onClick={() => void exportTimeline("gif")}
+          >
+            {exportBusy ? "만드는 중…" : "GIF로 저장"}
+          </button>
+          {detectVideoFormat() ? (
+            <button
+              type="button"
+              className="rounded-xl bg-ink py-3 text-white/85 ring-1 ring-line disabled:opacity-40"
+              disabled={exportBusy}
+              onClick={() => void exportTimeline("video")}
+            >
+              영상 파일로 저장
+            </button>
+          ) : (
+            <p className="px-1 text-xs leading-relaxed text-white/45">
+              이 브라우저에서는 영상 파일 저장을 지원하지 않습니다. GIF로 저장해 주세요.
+            </p>
+          )}
+          <button
+            type="button"
+            className="rounded-xl py-3 text-sm text-white/60 disabled:opacity-40"
+            disabled={exportBusy}
+            onClick={() => setExportOpen(false)}
+          >
+            닫기
+          </button>
+        </div>
       </Modal>
       <LeaveSaveModal
         open={leaveOpen}

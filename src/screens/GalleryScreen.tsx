@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Modal } from "../components/Modal";
-import { downloadPng, fileSafeName } from "../lib/capture";
+import { downloadBlob, fileSafeName } from "../lib/capture";
+import { CoverImg } from "../components/CoverSlot";
 import type { Album, GalleryCapture, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -15,6 +16,7 @@ type Props = {
   albums: Album[];
   plays: Play[];
   captures: GalleryCapture[];
+  covers: Record<string, Blob>;
   onOpenAlbum: (id: string) => void;
   onOpenPlay: (id: string) => void;
   onDeleteCapture: (id: string) => void;
@@ -24,6 +26,7 @@ export function GalleryScreen({
   albums,
   plays,
   captures,
+  covers,
   onOpenAlbum,
   onOpenPlay,
   onDeleteCapture,
@@ -104,7 +107,10 @@ export function GalleryScreen({
           capture={viewing}
           onClose={() => setViewing(null)}
           onDownload={(cap) =>
-            downloadPng(cap.blob, `${fileSafeName(folder.title)}-${fileSafeName(cap.cutName)}`)
+            downloadBlob(
+              cap.blob,
+              `${fileSafeName(folder.title)}-${fileSafeName(cap.cutName)}`,
+            )
           }
           onDelete={(cap) => {
             setViewing(null);
@@ -133,7 +139,7 @@ export function GalleryScreen({
         <p className="text-xs tracking-wide text-accent">ARCHIVE</p>
         <h1 className="mt-1 text-2xl font-bold">갤러리</h1>
         <p className="mt-2 text-xs leading-relaxed text-white/45">
-          캡처한 이미지는 전술 제목 폴더에 모입니다. 백업 파일에는 들어가지 않습니다.
+          캡처한 이미지·GIF·영상은 전술 제목 폴더에 모입니다. 백업 파일에는 들어가지 않습니다.
         </p>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
@@ -152,7 +158,7 @@ export function GalleryScreen({
           {capturesOpen ? (
             folders.length === 0 ? (
               <div className="rounded-2xl bg-panel px-4 py-5 text-sm leading-relaxed text-white/55 ring-1 ring-line">
-                아직 캡처가 없습니다. 전술 보드에서 [캡처]를 누르면 이 전술 폴더에
+                아직 캡처가 없습니다. 전술 보드에서 [캡처]나 [영상]을 누르면 이 전술 폴더에
                 저장됩니다.
               </div>
             ) : (
@@ -217,10 +223,14 @@ export function GalleryScreen({
                           onClick={() => onOpenPlay(play.id)}
                         >
                           <div className="min-h-0 flex-1 overflow-hidden rounded-xl">
-                            <CourtThumb
-                              court={play.court}
-                              objects={play.cuts[0]?.objects ?? []}
-                            />
+                            {covers[play.id] ? (
+                              <CoverImg blob={covers[play.id]} />
+                            ) : (
+                              <CourtThumb
+                                court={play.court}
+                                objects={play.cuts[0]?.objects ?? []}
+                              />
+                            )}
                           </div>
                           <h4 className="mt-2 truncate text-sm font-semibold">{play.title}</h4>
                           <p className="text-xs text-white/50">
@@ -240,16 +250,33 @@ export function GalleryScreen({
   );
 }
 
-function CaptureImg({ blob, fit = "cover" }: { blob: Blob; fit?: "cover" | "contain" }) {
+function CaptureImg({
+  blob,
+  fit = "cover",
+  controls = false,
+}: {
+  blob: Blob;
+  fit?: "cover" | "contain";
+  controls?: boolean;
+}) {
   const url = useMemo(() => URL.createObjectURL(blob), [blob]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
-  return (
-    <img
-      src={url}
-      alt=""
-      className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
-    />
-  );
+  const cls = `h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`;
+  if (blob.type.startsWith("video/")) {
+    return (
+      <video
+        src={url}
+        className={cls}
+        muted
+        playsInline
+        autoPlay
+        loop
+        controls={controls}
+        preload="metadata"
+      />
+    );
+  }
+  return <img src={url} alt="" className={cls} />;
 }
 
 function CaptureViewer({
@@ -267,7 +294,7 @@ function CaptureViewer({
   return (
     <Modal open title={capture.cutName} onClose={onClose}>
       <div className="mb-4 h-64 overflow-hidden rounded-xl bg-ink">
-        <CaptureImg blob={capture.blob} fit="contain" />
+        <CaptureImg blob={capture.blob} fit="contain" controls />
       </div>
       <p className="mb-4 text-xs text-white/45">{formatWhen(capture.createdAt)}</p>
       <div className="grid gap-2">

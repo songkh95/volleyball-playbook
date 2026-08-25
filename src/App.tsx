@@ -18,6 +18,7 @@ import {
   addImported,
   deleteAlbum,
   deleteCapture,
+  deleteCover,
   deletePlay,
   deletePreset,
   ensureMigrated,
@@ -26,10 +27,12 @@ import {
   getPreset,
   listAlbums,
   listCaptures,
+  listCovers,
   listPlays,
   listPresets,
   replaceAll,
   saveAlbum,
+  saveCover,
   savePlay,
   savePreset,
 } from "./lib/db";
@@ -65,6 +68,7 @@ export default function App() {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [presets, setPresets] = useState<FormationPreset[]>([]);
   const [captures, setCaptures] = useState<GalleryCapture[]>([]);
+  const [covers, setCovers] = useState<Record<string, Blob>>({});
   const [editorPlay, setEditorPlay] = useState<Play | null>(null);
   const [editorPreset, setEditorPreset] = useState<FormationPreset | null>(null);
   const [album, setAlbum] = useState<Album | null>(null);
@@ -79,21 +83,38 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     await ensureMigrated();
-    const [nextPlays, nextAlbums, nextPresets, nextCaptures] = await Promise.all([
+    const [nextPlays, nextAlbums, nextPresets, nextCaptures, nextCovers] = await Promise.all([
       listPlays(),
       listAlbums(),
       listPresets(),
       listCaptures(),
+      listCovers(),
     ]);
     setPlays(nextPlays);
     setAlbums(nextAlbums);
     setPresets(nextPresets);
     setCaptures(nextCaptures);
+    setCovers(Object.fromEntries(nextCovers.map((c) => [c.id, c.blob])));
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  async function handleCoverChange(id: string, kind: "album" | "play", blob: Blob | null) {
+    if (blob) {
+      await saveCover({ id, kind, blob });
+      setCovers((prev) => ({ ...prev, [id]: blob }));
+    } else {
+      await deleteCover(id);
+      setCovers((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+    await refresh();
+  }
 
   useEffect(() => {
     if (route.name !== "editor") {
@@ -268,12 +289,15 @@ export default function App() {
           albumPlays={plays.filter((p) => p.albumId === editorPlay.albumId)}
           albums={albums}
           presets={presets}
+          covers={covers}
           onChange={setEditorPlay}
           onBack={() => {
             void refresh();
             setRoute(route.back);
           }}
           onOpenPlay={(id) => {
+            const next = plays.find((p) => p.id === id);
+            if (next) setEditorPlay(next);
             void refresh();
             setRoute({ ...route, playId: id });
           }}
@@ -321,6 +345,7 @@ export default function App() {
             <AlbumScreen
               album={album}
               plays={plays.filter((p) => p.albumId === album.id)}
+              covers={covers}
               onBack={() => setRoute({ name: "main", tab: route.tab })}
               onRename={() => setRenameAlbumOpen(true)}
               onNewPlay={() => {
@@ -335,6 +360,7 @@ export default function App() {
                 })
               }
               onDeletePlay={(play) => setPendingDelete({ kind: "play", play })}
+              onCoverChange={(id, kind, blob) => void handleCoverChange(id, kind, blob)}
             />
           ) : (
             <div className="h-full bg-ink" />
@@ -344,9 +370,11 @@ export default function App() {
             albums={albums}
             presets={presets}
             plays={plays}
+            covers={covers}
             onNewAlbum={() => setCreateAlbumOpen(true)}
             onOpenAlbum={(id) => setRoute({ name: "album", albumId: id, tab: "home" })}
             onDeleteAlbum={(a) => setPendingDelete({ kind: "album", album: a })}
+            onCoverChange={(id, kind, blob) => void handleCoverChange(id, kind, blob)}
             onNewPreset={() => {
               const preset = createPreset();
               void savePreset(preset).then(async () => {
@@ -373,6 +401,7 @@ export default function App() {
             albums={albums}
             plays={plays}
             captures={captures}
+            covers={covers}
             onOpenAlbum={(id) => setRoute({ name: "album", albumId: id, tab: "gallery" })}
             onOpenPlay={(id) => {
               const play = plays.find((p) => p.id === id);
