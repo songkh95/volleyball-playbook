@@ -75,15 +75,16 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
 
   const exportHead = exportHeadRef.current;
   const snap = exportHead == null ? null : viewAtPlayhead(props.cuts, exportHead);
-  const sceneProps: Props = snap
-    ? {
-        ...props,
-        playhead: exportHead,
-        objects: snap.objects,
-        trails: props.showTrails ? snap.trails : [],
-        strokes: snap.strokes,
-      }
-    : props;
+  const sceneProps: Props =
+    snap && exportHead != null
+      ? {
+          ...props,
+          playhead: exportHead,
+          objects: snap.objects,
+          trails: props.showTrails ? snap.trails : [],
+          strokes: snap.strokes,
+        }
+      : props;
 
   useImperativeHandle(ref, () => ({
     toPngBlob: () => grabPng(apiRef.current),

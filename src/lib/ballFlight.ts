@@ -310,6 +310,7 @@ export function interpolateBallPosition(
   if (!from && !to) return null;
   if (!from || !to) {
     const only = to ?? from;
+    if (!only) return null;
     return { x: only.x, y: only.y, flight: only.flight };
   }
   if (xyStill(from, to)) {
