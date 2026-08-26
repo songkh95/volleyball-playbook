@@ -1,5 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { bandFromHeight, flightShort } from "../lib/ballFlight";
 import { getBallSprite, loadBallSprite } from "../lib/ballSprite";
+import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
 import { courtMeters, netYNorm } from "../lib/defaultPlay";
 import { isLightColor } from "../lib/colors";
 import type { Trail } from "../lib/interpolate";
@@ -206,6 +208,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
     const ro = new ResizeObserver(() => paint.current());
     ro.observe(wrap);
     loadBallSprite(() => paint.current());
+    loadConeSprite(() => paint.current());
     paint.current();
     return () => ro.disconnect();
   }, []);
@@ -270,6 +273,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         throw new Error("코트를 캡처할 수 없습니다.");
       }
       await waitForBallSprite();
+      await waitForConeSprite();
       const srcW = wrap.clientWidth;
       const srcH = wrap.clientHeight;
       const scale = Math.min(1, 360 / srcW);
@@ -525,7 +529,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           if (drag) {
             if (!drag.moved) {
               const obj = objectsRef.current.find((o) => o.id === drag.id);
-              if (obj?.kind === "player") onSelectPlayer(obj.id);
+              if (obj) onSelectPlayer(obj.id);
             }
             e.preventDefault();
             return;
@@ -637,6 +641,23 @@ function paintScene(
   return rect;
 }
 
+function waitForConeSprite() {
+  return new Promise<void>((resolve) => {
+    if (getConeSprite("#ef6c00")) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    loadConeSprite(done);
+    window.setTimeout(done, 400);
+  });
+}
+
 function waitForBallSprite() {
   return new Promise<void>((resolve) => {
     if (getBallSprite()) {
@@ -728,7 +749,27 @@ function hitTest(
   let bestD = Infinity;
   for (const obj of objects) {
     const p = objectScreen(rect, obj);
-    const r = obj.kind === "ball" ? Math.min(rect.w, rect.h) * 0.035 : Math.min(rect.w, rect.h) * 0.055;
+    if (obj.kind === "text") {
+      const fontPx = textFontPx(rect, obj);
+      const w = Math.max(fontPx, (obj.label || "텍스트").length * fontPx * 0.58);
+      const h = fontPx * 1.3;
+      const dx = px - p.x;
+      const dy = py - p.y;
+      if (Math.abs(dx) <= w * 0.58 && Math.abs(dy) <= h * 0.58) {
+        const d = Math.hypot(dx, dy);
+        if (d < bestD) {
+          best = obj;
+          bestD = d;
+        }
+      }
+      continue;
+    }
+    const r =
+      obj.kind === "ball"
+        ? Math.min(rect.w, rect.h) * 0.07
+        : obj.kind === "cone"
+          ? Math.min(rect.w, rect.h) * 0.065
+          : Math.min(rect.w, rect.h) * 0.055;
     const d = Math.hypot(px - p.x, py - p.y);
     if (d <= r * 1.35 && d < bestD) {
       best = obj;
@@ -992,6 +1033,41 @@ function drawObject(
     }
     lastBallPos.set(obj.id, { x: obj.x, y: obj.y });
     drawBall(ctx, p.x, p.y, r, spin, obj.color);
+    const tags: string[] = [];
+    if (obj.height != null) {
+      tags.push(
+        bandFromHeight(obj.height) === "lower"
+          ? "하"
+          : bandFromHeight(obj.height) === "upper"
+            ? "상"
+            : "공",
+      );
+    }
+    const fly = flightShort(obj.flight);
+    if (fly) tags.push(fly);
+    if (tags.length > 0) {
+      const tag = tags.join("·");
+      const chipH = Math.max(12, r * 0.72);
+      ctx.font = `700 ${Math.max(9, chipH * 0.72)}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const w = Math.max(chipH * 1.35, ctx.measureText(tag).width + chipH * 0.7);
+      const y = p.y - r - chipH * 0.85;
+      ctx.fillStyle = "rgba(12,12,20,0.82)";
+      ctx.fillRect(p.x - w / 2, y - chipH / 2, w, chipH);
+      ctx.fillStyle = "#ffd54f";
+      ctx.fillText(tag, p.x, y + 0.5);
+    }
+    return;
+  }
+
+  if (obj.kind === "cone") {
+    drawCone(ctx, p.x, p.y, size, obj.color);
+    return;
+  }
+
+  if (obj.kind === "text") {
+    drawBoardText(ctx, rect, p.x, p.y, obj);
     return;
   }
 
@@ -1006,6 +1082,56 @@ function drawObject(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(obj.label.slice(0, 4), p.x, p.y);
+}
+
+function textFontPx(rect: CourtRect, obj: CourtObject) {
+  const size = Math.min(rect.w, rect.h);
+  const n = obj.fontSize ?? 18;
+  return Math.max(10, (n / 18) * size * 0.055);
+}
+
+function drawCone(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+) {
+  const sprite = getConeSprite(color);
+  const h = size * 0.065;
+  const w = h * (sprite ? sprite.width / Math.max(1, sprite.height) : 0.72);
+  if (sprite) {
+    ctx.drawImage(sprite, x - w / 2, y - h / 2, w, h);
+    return;
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y - h * 0.62);
+  ctx.lineTo(x + w * 0.52, y + h * 0.38);
+  ctx.lineTo(x - w * 0.52, y + h * 0.38);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBoardText(
+  ctx: CanvasRenderingContext2D,
+  rect: CourtRect,
+  x: number,
+  y: number,
+  obj: CourtObject,
+) {
+  const fontPx = textFontPx(rect, obj);
+  const italic = obj.italic ? "italic " : "";
+  const weight = obj.bold ? "700" : "500";
+  ctx.save();
+  ctx.font = `${italic}${weight} ${fontPx}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = obj.color;
+  ctx.fillText(obj.label || "텍스트", x, y);
+  ctx.restore();
 }
 
 function drawBall(

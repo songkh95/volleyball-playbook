@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { CoverSlot } from "../components/CoverSlot";
+import { CoverCardGear, CoverSlot } from "../components/CoverSlot";
+import { Modal } from "../components/Modal";
 import type { Album, FormationPreset, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -35,6 +36,7 @@ export function HomeScreen({
   onRestore,
 }: Props) {
   const [presetsOpen, setPresetsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   function playCount(albumId: string) {
     return plays.filter((p) => p.albumId === albumId).length;
@@ -50,33 +52,32 @@ export function HomeScreen({
         <p className="text-xs tracking-wide text-accent">VOLLEYBALL PLAYBOOK</p>
         <div className="mt-1 flex items-end justify-between gap-2">
           <h1 className="text-2xl font-bold">전술 보드</h1>
-          <div className="flex shrink-0 gap-1.5">
-            <button
-              type="button"
-              className="rounded-lg px-2.5 py-1.5 text-xs text-white/80 ring-1 ring-line"
-              onClick={onBackup}
-            >
-              백업 저장
-            </button>
-            <button
-              type="button"
-              className="rounded-lg px-2.5 py-1.5 text-xs text-white/80 ring-1 ring-line"
-              onClick={onRestore}
-            >
-              백업 불러오기
-            </button>
-          </div>
+          <button
+            type="button"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/80 ring-1 ring-line"
+            aria-label="설정"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+              <path
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinejoin="round"
+                d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+              />
+              <path
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinejoin="round"
+                d="M19.4 13a1.8 1.8 0 0 0 0-2l1.6-1.3-1.6-2.8-2 .7a7 7 0 0 0-1.7-1L15.1 4h-3.2L11.3 6.6a7 7 0 0 0-1.7 1l-2-.7-1.6 2.8L7.6 11a1.8 1.8 0 0 0 0 2l-1.6 1.3 1.6 2.8 2-.7a7 7 0 0 0 1.7 1L11.9 20h3.2l.6-2.6a7 7 0 0 0 1.7-1l2 .7 1.6-2.8L19.4 13Z"
+              />
+            </svg>
+          </button>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-white/45">
           전술 프로젝트를 먼저 만들고 그 안에 전술을 넣으세요. 대형 프리셋은 아래에서
           만들어 전술 보드에서 불러올 수 있습니다.
         </p>
-        <a
-          href="./privacy.html"
-          className="mt-2 inline-block text-[11px] text-white/35 underline-offset-2 hover:text-white/60"
-        >
-          개인정보 처리방침
-        </a>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
@@ -107,7 +108,6 @@ export function HomeScreen({
                     <CoverSlot
                       cover={covers[album.id]}
                       onOpen={() => onOpenAlbum(album.id)}
-                      onChange={(blob) => onCoverChange(album.id, "album", blob)}
                       fallback={
                         sample ? (
                           <CourtThumb
@@ -128,13 +128,11 @@ export function HomeScreen({
                       <p className="text-xs text-white/50">전술 {playCount(album.id)}개</p>
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"
-                    onClick={() => onDeleteAlbum(album)}
-                  >
-                    삭제
-                  </button>
+                  <CoverCardGear
+                    hasCover={Boolean(covers[album.id])}
+                    onCoverChange={(blob) => onCoverChange(album.id, "album", blob)}
+                    onDelete={() => onDeleteAlbum(album)}
+                  />
                 </article>
               );
             })}
@@ -202,6 +200,40 @@ export function HomeScreen({
           ) : null}
         </section>
       </div>
+
+      <Modal open={settingsOpen} title="설정" onClose={() => setSettingsOpen(false)}>
+        <p className="mb-2 text-xs font-semibold text-white/50">백업</p>
+        <div className="mb-5 grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            className="rounded-xl bg-ink py-3 text-sm text-white/85 ring-1 ring-line"
+            onClick={onBackup}
+          >
+            백업 저장
+          </button>
+          <button
+            type="button"
+            className="rounded-xl bg-ink py-3 text-sm text-white/85 ring-1 ring-line"
+            onClick={onRestore}
+          >
+            백업 불러오기
+          </button>
+        </div>
+        <p className="mb-2 text-xs font-semibold text-white/50">크레딧</p>
+        <p className="mb-4 text-sm leading-relaxed text-white/70">
+          “Volleyball” 3D model by PatelDev, licensed under CC Attribution.
+          <br />
+          “volleyball net” 3D model by otyken, licensed under CC Attribution.
+          <br />
+          Safety cone icon by yoyonpujiono.
+        </p>
+        <a
+          href="./privacy.html"
+          className="inline-block text-[12px] text-white/45 underline-offset-2 hover:text-white/70"
+        >
+          개인정보 처리방침
+        </a>
+      </Modal>
     </div>
   );
 }

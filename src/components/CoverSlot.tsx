@@ -2,24 +2,41 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { fileToCoverBlob, isImageFile } from "../lib/coverImage";
 import { Modal } from "./Modal";
 
-type Props = {
+type CoverSlotProps = {
   cover?: Blob | null;
   fallback: ReactNode;
   onOpen?: () => void;
-  onChange: (blob: Blob | null) => void;
 };
 
-export function CoverSlot({ cover, fallback, onOpen, onChange }: Props) {
+export function CoverSlot({ cover, fallback, onOpen }: CoverSlotProps) {
+  return (
+    <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl">
+      <button
+        type="button"
+        className="block h-full w-full overflow-hidden"
+        onClick={onOpen}
+      >
+        {cover ? <CoverImg blob={cover} /> : fallback}
+      </button>
+    </div>
+  );
+}
+
+type CoverCardGearProps = {
+  hasCover: boolean;
+  onCoverChange: (blob: Blob | null) => void;
+  onDelete: () => void;
+};
+
+export function CoverCardGear({
+  hasCover,
+  onCoverChange,
+  onDelete,
+}: CoverCardGearProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [localCover, setLocalCover] = useState<Blob | null>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
-  const shown = localCover ?? cover ?? null;
-
-  useEffect(() => {
-    if (cover) setLocalCover(null);
-  }, [cover]);
 
   async function applyFile(file: File | undefined) {
     if (!file) return;
@@ -30,8 +47,7 @@ export function CoverSlot({ cover, fallback, onOpen, onChange }: Props) {
     try {
       setError(null);
       const blob = await fileToCoverBlob(file);
-      setLocalCover(blob);
-      onChange(blob);
+      onCoverChange(blob);
       setMenuOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "사진을 넣지 못했습니다.");
@@ -39,24 +55,18 @@ export function CoverSlot({ cover, fallback, onOpen, onChange }: Props) {
   }
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl">
+    <>
       <button
         type="button"
-        className="block h-full w-full overflow-hidden"
-        onClick={onOpen}
-      >
-        {shown ? <CoverImg blob={shown} /> : fallback}
-      </button>
-      <button
-        type="button"
-        className="absolute bottom-2 left-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/85"
+        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-ink/80 text-white/85"
+        aria-label="관리"
         onClick={(e) => {
           e.stopPropagation();
           setError(null);
           setMenuOpen(true);
         }}
       >
-        사진
+        <GearIcon />
       </button>
       <input
         ref={galleryRef}
@@ -81,7 +91,7 @@ export function CoverSlot({ cover, fallback, onOpen, onChange }: Props) {
           void applyFile(file);
         }}
       />
-      <Modal open={menuOpen} title="커버 사진" onClose={() => setMenuOpen(false)}>
+      <Modal open={menuOpen} title="관리" onClose={() => setMenuOpen(false)}>
         <div className="flex flex-col gap-2">
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
           <button
@@ -98,22 +108,50 @@ export function CoverSlot({ cover, fallback, onOpen, onChange }: Props) {
           >
             카메라로 촬영
           </button>
-          {shown ? (
+          {hasCover ? (
             <button
               type="button"
-              className="rounded-xl py-3 text-sm text-white/60"
+              className="rounded-xl bg-ink py-3 text-sm text-white/70 ring-1 ring-line"
               onClick={() => {
-                setLocalCover(null);
-                onChange(null);
+                onCoverChange(null);
                 setMenuOpen(false);
               }}
             >
               사진 빼기
             </button>
           ) : null}
+          <button
+            type="button"
+            className="rounded-xl bg-red-800 py-3 text-sm font-semibold"
+            onClick={() => {
+              setMenuOpen(false);
+              onDelete();
+            }}
+          >
+            삭제
+          </button>
         </div>
       </Modal>
-    </div>
+    </>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+      <path
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+        d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"
+      />
+      <path
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+        d="M19.4 13a1.8 1.8 0 0 0 0-2l1.6-1.3-1.6-2.8-2 .7a7 7 0 0 0-1.7-1L15.1 4h-3.2L11.3 6.6a7 7 0 0 0-1.7 1l-2-.7-1.6 2.8L7.6 11a1.8 1.8 0 0 0 0 2l-1.6 1.3 1.6 2.8 2-.7a7 7 0 0 0 1.7 1L11.9 20h3.2l.6-2.6a7 7 0 0 0 1.7-1l2 .7 1.6-2.8L19.4 13Z"
+      />
+    </svg>
   );
 }
 

@@ -14,6 +14,26 @@ export const OUR_TEAM_COLORS = [
   { n: 9, value: "#212121", label: "블랙" },
 ] as const;
 
+export const CONE_COLORS = [
+  { value: "#1565c0", label: "블루" },
+  { value: "#ef6c00", label: "오렌지" },
+  { value: "#f9a825", label: "노랑" },
+  { value: "#c62828", label: "레드" },
+  { value: "#2e7d32", label: "그린" },
+  { value: "#f5f5f5", label: "화이트" },
+  { value: "#212121", label: "블랙" },
+] as const;
+
+export const TEXT_COLORS = [
+  { value: "#ffffff", label: "화이트" },
+  { value: "#ffd54f", label: "노랑" },
+  { value: "#212121", label: "블랙" },
+  { value: "#c62828", label: "레드" },
+  { value: "#1565c0", label: "블루" },
+  { value: "#1b5e20", label: "그린" },
+  { value: "#f5f5f5", label: "라이트" },
+] as const;
+
 export function isLightColor(hex: string) {
   const h = hex.replace("#", "");
   if (h.length < 6) return false;

@@ -1,4 +1,4 @@
-import { CoverSlot } from "../components/CoverSlot";
+import { CoverCardGear, CoverSlot } from "../components/CoverSlot";
 import type { Album, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -66,7 +66,6 @@ export function AlbumScreen({
                 <CoverSlot
                   cover={covers[play.id]}
                   onOpen={() => onOpenPlay(play.id)}
-                  onChange={(blob) => onCoverChange(play.id, "play", blob)}
                   fallback={
                     <CourtThumb
                       court={play.court}
@@ -86,13 +85,11 @@ export function AlbumScreen({
                   </p>
                 </button>
               </div>
-              <button
-                type="button"
-                className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"
-                onClick={() => onDeletePlay(play)}
-              >
-                삭제
-              </button>
+              <CoverCardGear
+                hasCover={Boolean(covers[play.id])}
+                onCoverChange={(blob) => onCoverChange(play.id, "play", blob)}
+                onDelete={() => onDeletePlay(play)}
+              />
             </article>
           ))}
         </div>

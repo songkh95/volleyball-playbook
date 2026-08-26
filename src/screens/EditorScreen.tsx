@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CoverImg } from "../components/CoverSlot";
 import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { EditBallModal } from "../components/EditBallModal";
+import { EditConeModal } from "../components/EditConeModal";
 import { EditPlayerModal } from "../components/EditPlayerModal";
+import { EditTextModal } from "../components/EditTextModal";
 import { PresetModal } from "../components/PresetModal";
 import { RenameModal } from "../components/RenameModal";
 import { SavePlayModal } from "../components/SavePlayModal";
@@ -15,15 +18,17 @@ import { isPlayDirty } from "../lib/dirty";
 import {
   detectVideoFormat,
   encodeGif,
+  moviePlayheads,
   movieViews,
   recordVideo,
 } from "../lib/exportMovie";
 import { uid } from "../lib/id";
 import { cloneCutAfter, viewAtPlayhead } from "../lib/interpolate";
-import { applyUserPreset, newPlayer } from "../lib/presets";
+import { applyUserPreset, newCone, newPlayer, newText } from "../lib/presets";
 import { PEN_COLORS, strokeNearPoint } from "../lib/stroke";
 import type {
   Album,
+  CourtObject,
   EditorTool,
   FormationPreset,
   Play,
@@ -31,7 +36,9 @@ import type {
   StrokeKind,
   ZoneMode,
 } from "../types/play";
+import { cameraPresets, type CameraCorner } from "../lib/court3d";
 import { CourtCanvas, type CourtCanvasHandle } from "./CourtCanvas";
+import { Court3DView, type Court3DHandle } from "./Court3DView";
 import { CourtThumb } from "./CourtThumb";
 
 let albumStripOpenMemory = false;
@@ -67,6 +74,7 @@ export function EditorScreen({
   const [playing, setPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(1);
   const [speedOpen, setSpeedOpen] = useState(false);
+  const [playMenuOpen, setPlayMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
@@ -88,13 +96,19 @@ export function EditorScreen({
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [view3d, setView3d] = useState(false);
+  const [cameraPreset, setCameraPreset] = useState<CameraCorner>("bl");
+  const [cameraNonce, setCameraNonce] = useState(0);
   const canvasRef = useRef<CourtCanvasHandle>(null);
+  const court3dRef = useRef<Court3DHandle>(null);
+  const view3dRef = useRef(false);
   const albumStripRef = useRef<HTMLDivElement>(null);
   const albumDragRef = useRef<{ x: number; sl: number; moved: boolean } | null>(null);
   const albumDraggedRef = useRef(false);
   const playheadRef = useRef(0);
   const playingRef = useRef(false);
   const playSpeedRef = useRef(1);
+  const loopPlayRef = useRef(false);
   const playRef = useRef(play);
   const undoRef = useRef<Play[]>([]);
   const eraseDidRef = useRef(false);
@@ -106,6 +120,7 @@ export function EditorScreen({
   playingRef.current = playing;
   playSpeedRef.current = playSpeed;
   playRef.current = play;
+  view3dRef.current = view3d;
 
   const lastCut = Math.max(0, play.cuts.length - 1);
   const view = useMemo(
@@ -123,6 +138,12 @@ export function EditorScreen({
   useEffect(() => {
     if (playhead > lastCut) setPlayhead(lastCut);
   }, [lastCut, playhead]);
+
+  useEffect(() => {
+    if (play.court === "half" && (cameraPreset === "tl" || cameraPreset === "tr")) {
+      setCameraPreset("bl");
+    }
+  }, [play.court, cameraPreset]);
 
   useEffect(() => {
     if (persistPausedRef.current) return;
@@ -147,10 +168,20 @@ export function EditorScreen({
       lastTs = ts;
       const next = playheadRef.current + dt * playSpeedRef.current;
       if (next >= lastCut) {
+        if (loopPlayRef.current) {
+          const wrapped = Math.max(0, next - lastCut);
+          playheadRef.current = wrapped;
+          setPlayhead(wrapped);
+          lastTs = ts;
+          raf = window.requestAnimationFrame(step);
+          return;
+        }
+        playheadRef.current = lastCut;
         setPlayhead(lastCut);
         setPlaying(false);
         return;
       }
+      playheadRef.current = next;
       setPlayhead(next);
       raf = window.requestAnimationFrame(step);
     };
@@ -292,6 +323,35 @@ export function EditorScreen({
     );
   }
 
+  function addCone() {
+    pushUndo();
+    const cone = newCone(play.court);
+    updatePlay(
+      play.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...cone }] })),
+    );
+    setEditingId(cone.id);
+  }
+
+  function addText() {
+    pushUndo();
+    const text = newText(play.court);
+    updatePlay(
+      play.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...text }] })),
+    );
+    setEditingId(text.id);
+  }
+
+  function patchObject(id: string, patch: Partial<CourtObject>) {
+    pushUndo();
+    updatePlay(
+      play.cuts.map((c) => ({
+        ...c,
+        objects: c.objects.map((o) => (o.id === id ? { ...o, ...patch } : o)),
+      })),
+    );
+    setEditingId(null);
+  }
+
   function applyFormation(preset: FormationPreset) {
     pushUndo();
     const i = editIndex;
@@ -309,8 +369,17 @@ export function EditorScreen({
     if (lastCut === 0) return;
     if (playing) {
       setPlaying(false);
+      setPlayMenuOpen(false);
       return;
     }
+    setSpeedOpen(false);
+    setPlayMenuOpen((v) => !v);
+  }
+
+  function startPlay(loop: boolean) {
+    if (lastCut === 0) return;
+    loopPlayRef.current = loop;
+    setPlayMenuOpen(false);
     if (playhead >= lastCut - 0.001) setPlayhead(0);
     setPlaying(true);
   }
@@ -356,7 +425,9 @@ export function EditorScreen({
 
   async function captureFrame() {
     try {
-      const blob = await canvasRef.current?.toPngBlob();
+      const blob = view3dRef.current
+        ? await court3dRef.current?.toPngBlob()
+        : await canvasRef.current?.toPngBlob();
       if (!blob) {
         setCaptureNotice("코트를 캡처할 수 없습니다.");
         return;
@@ -387,8 +458,10 @@ export function EditorScreen({
     setPlaying(false);
     setExportBusy(true);
     try {
-      const views = movieViews(playRef.current.cuts, showTrails);
-      const frames = await canvasRef.current?.captureViews(views);
+      const current = playRef.current;
+      const frames = view3dRef.current
+        ? await court3dRef.current?.captureViews(moviePlayheads(current.cuts.length))
+        : await canvasRef.current?.captureViews(movieViews(current.cuts, showTrails));
       if (!frames?.length) {
         throw new Error("코트를 캡처할 수 없습니다.");
       }
@@ -480,13 +553,26 @@ export function EditorScreen({
             {toolsOpen ? (
               <>
                 <ToolBtn
-                  active={tool === "select" && !drawOpen}
+                  active={tool === "select" && !drawOpen && !view3d}
+                  disabled={exportBusy}
                   onClick={() => {
+                    setView3d(false);
                     setTool("select");
                     setDrawOpen(false);
                   }}
                 >
                   전술모드
+                </ToolBtn>
+                <ToolBtn
+                  active={view3d}
+                  disabled={exportBusy}
+                  onClick={() => {
+                    setView3d((v) => !v);
+                    setDrawOpen(false);
+                    setTool("select");
+                  }}
+                >
+                  3D 보기
                 </ToolBtn>
                 <ToolBtn
                   active={drawOpen || tool === "pen" || tool === "eraser" || tool === "laser"}
@@ -512,6 +598,8 @@ export function EditorScreen({
                 <ToolBtn onClick={() => setZoneOpen(true)}>구역</ToolBtn>
                 <ToolBtn onClick={() => setPresetOpen(true)}>대형</ToolBtn>
                 <ToolBtn onClick={addPlayer}>선수</ToolBtn>
+                <ToolBtn onClick={addCone}>콘</ToolBtn>
+                <ToolBtn onClick={addText}>텍스트</ToolBtn>
               </>
             ) : null}
           </div>
@@ -576,33 +664,75 @@ export function EditorScreen({
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        <CourtCanvas
-          ref={canvasRef}
-          court={play.court}
-          objects={view.objects}
-          trails={showTrails ? view.trails : []}
-          strokes={view.strokes}
-          zoneMode={zoneMode}
-          tool={tool}
-          drawColor={drawColor}
-          drawKind={drawKind}
-          interactive={!playing}
-          onPointerStart={() => {
-            setPlaying(false);
-            const i = Math.min(lastCut, Math.max(0, Math.round(playheadRef.current)));
-            playheadRef.current = i;
-            setPlayhead(i);
-          }}
-          onMoveBegin={pushUndo}
-          onMove={moveObject}
-          onSelectPlayer={setEditingId}
-          onStrokeEnd={addStroke}
-          onEraseBegin={eraseBegin}
-          onEraseAt={eraseAt}
-        />
+      <div className="relative min-h-0 flex-1 isolate">
+        <div className={view3d ? "hidden" : "h-full"}>
+          <CourtCanvas
+            ref={canvasRef}
+            court={play.court}
+            objects={view.objects}
+            trails={showTrails ? view.trails : []}
+            strokes={view.strokes}
+            zoneMode={zoneMode}
+            tool={tool}
+            drawColor={drawColor}
+            drawKind={drawKind}
+            interactive={!playing && !view3d}
+            onPointerStart={() => {
+              setPlaying(false);
+              const i = Math.min(lastCut, Math.max(0, Math.round(playheadRef.current)));
+              playheadRef.current = i;
+              setPlayhead(i);
+            }}
+            onMoveBegin={pushUndo}
+            onMove={moveObject}
+            onSelectPlayer={setEditingId}
+            onStrokeEnd={addStroke}
+            onEraseBegin={eraseBegin}
+            onEraseAt={eraseAt}
+          />
+        </div>
+        {view3d ? (
+          <div className="absolute inset-0 z-10 h-full w-full bg-[#10151f]">
+            <Court3DView
+              ref={court3dRef}
+              court={play.court}
+              objects={view.objects}
+              cuts={play.cuts}
+              playhead={playhead}
+              trails={showTrails ? view.trails : []}
+              strokes={view.strokes}
+              showTrails={showTrails}
+              cameraPreset={cameraPreset}
+              cameraNonce={cameraNonce}
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center px-2">
+              <div className="pointer-events-auto flex flex-wrap justify-center gap-1 rounded-xl bg-black/50 p-1 ring-1 ring-white/15">
+                {cameraPresets(play.court).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`rounded-lg px-2.5 py-1 text-[10px] font-medium ${
+                      cameraPreset === item.id
+                        ? "bg-white text-ink"
+                        : "text-white/80"
+                    }`}
+                    onClick={() => {
+                      setCameraPreset(item.id);
+                      setCameraNonce((n) => n + 1);
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[10px] text-white/70">
+              드래그하면 360도 회전
+            </p>
+          </div>
+        ) : null}
         {exportBusy ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50">
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
             <p className="rounded-xl bg-panel px-4 py-3 text-sm text-white/90 ring-1 ring-line">
               영상을 만드는 중…
             </p>
@@ -705,13 +835,33 @@ export function EditorScreen({
           {timelineOpen ? (
             <>
               <div className="mb-3 mt-1 flex items-center gap-1.5">
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink"
-                  onClick={togglePlay}
-                >
-                  {playing ? "정지" : "재생"}
-                </button>
+                <div className="relative shrink-0">
+                  {playMenuOpen && !playing ? (
+                    <div className="absolute bottom-full left-0 z-20 mb-1 flex flex-col gap-0.5 rounded-lg bg-panel p-1 ring-1 ring-line">
+                      <button
+                        type="button"
+                        className="rounded-md px-2.5 py-1 text-left text-[10px] font-medium whitespace-nowrap text-white/75 hover:bg-white/10"
+                        onClick={() => startPlay(false)}
+                      >
+                        한 번 재생
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md px-2.5 py-1 text-left text-[10px] font-medium whitespace-nowrap text-white/75 hover:bg-white/10"
+                        onClick={() => startPlay(true)}
+                      >
+                        반복 재생
+                      </button>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink"
+                    onClick={togglePlay}
+                  >
+                    {playing ? "정지" : "재생"}
+                  </button>
+                </div>
                 <input
                   type="range"
                   className="h-1.5 min-w-0 flex-1 accent-white"
@@ -722,6 +872,7 @@ export function EditorScreen({
                   disabled={lastCut === 0}
                   onChange={(e) => {
                     setPlaying(false);
+                    setPlayMenuOpen(false);
                     setPlayhead(Number(e.target.value));
                   }}
                 />
@@ -748,6 +899,7 @@ export function EditorScreen({
                           onClick={() => {
                             setPlaySpeed(speed);
                             setSpeedOpen(false);
+                            setPlayMenuOpen(false);
                           }}
                         >
                           {speed === 1 ? "1배" : `${speed}배`}
@@ -758,7 +910,10 @@ export function EditorScreen({
                   <button
                     type="button"
                     className="rounded-lg border border-white/40 px-2 py-1 text-[10px] text-white/75"
-                    onClick={() => setSpeedOpen((v) => !v)}
+                    onClick={() => {
+                      setPlayMenuOpen(false);
+                      setSpeedOpen((v) => !v);
+                    }}
                   >
                     {playSpeed === 1 ? "1배" : `${playSpeed}배`}
                   </button>
@@ -803,8 +958,63 @@ export function EditorScreen({
         </section>
       </div>
 
+      <EditBallModal
+        object={editing?.kind === "ball" ? editing : null}
+        onClose={() => setEditingId(null)}
+        onSave={(patch) => {
+          const id = editingId;
+          if (!id) return;
+          const i = editCutIndex();
+          const current = playRef.current;
+          const cut = current.cuts[i];
+          const ball = cut?.objects.find((o) => o.id === id);
+          const prevH = ball?.height;
+          const sameHeight =
+            patch.height == null
+              ? prevH == null
+              : prevH != null && Math.abs(prevH - patch.height) < 1e-6;
+          const sameFlight = (ball?.flight ?? undefined) === patch.flight;
+          if (sameHeight && sameFlight) return;
+          pushUndo();
+          updatePlay(
+            current.cuts.map((c, idx) => {
+              if (idx !== i) return c;
+              return {
+                ...c,
+                objects: c.objects.map((o) => {
+                  if (o.id !== id) return o;
+                  const next = { ...o };
+                  if (patch.height == null) delete next.height;
+                  else next.height = patch.height;
+                  if (patch.flight == null) delete next.flight;
+                  else next.flight = patch.flight;
+                  return next;
+                }),
+              };
+            }),
+          );
+        }}
+      />
+      <EditConeModal
+        object={editing?.kind === "cone" ? editing : null}
+        onClose={() => setEditingId(null)}
+        onSave={(patch) => {
+          if (!editingId) return;
+          patchObject(editingId, patch);
+        }}
+        onDelete={deletePlayer}
+      />
+      <EditTextModal
+        object={editing?.kind === "text" ? editing : null}
+        onClose={() => setEditingId(null)}
+        onSave={(patch) => {
+          if (!editingId) return;
+          patchObject(editingId, patch);
+        }}
+        onDelete={deletePlayer}
+      />
       <EditPlayerModal
-        object={editing}
+        object={editing?.kind === "player" ? editing : null}
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
           pushUndo();
@@ -916,8 +1126,8 @@ export function EditorScreen({
         onClose={exportBusy ? undefined : () => setExportOpen(false)}
       >
         <p className="mb-4 text-sm leading-relaxed text-white/70">
-          컷 타임라인을 재생한 결과를 GIF나 영상 파일로 저장합니다. 갤러리에서도 볼 수
-          있습니다.
+          컷 타임라인을 재생한 결과를 GIF나 영상 파일로 저장합니다. 3D 보기 중이면 3D
+          화면으로 저장됩니다. 갤러리에서도 볼 수 있습니다.
           {play.cuts.length <= 1
             ? " 컷이 하나면 1초 동안 같은 장면이 저장됩니다."
             : ""}

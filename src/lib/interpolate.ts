@@ -1,4 +1,5 @@
 import type { CourtObject, Cut, ObjKind } from "../types/play";
+import { interpolateBallPosition } from "./ballFlight";
 
 export type Trail = {
   kind: ObjKind;
@@ -28,7 +29,25 @@ export function interpolateObjects(
     seen.add(o.id);
     const n = dest.get(o.id);
     if (!n) return o;
-    return { ...n, x: lerp(o.x, n.x, t), y: lerp(o.y, n.y, t) };
+    if (o.kind === "ball") {
+      const pos = interpolateBallPosition(from, to, t);
+      const height =
+        o.height != null && n.height != null
+          ? lerp(o.height, n.height, t)
+          : n.height ?? o.height;
+      return {
+        ...n,
+        x: pos?.x ?? lerp(o.x, n.x, t),
+        y: pos?.y ?? lerp(o.y, n.y, t),
+        height,
+        flight: n.flight ?? o.flight,
+      };
+    }
+    const height =
+      o.height != null && n.height != null
+        ? lerp(o.height, n.height, t)
+        : n.height ?? o.height;
+    return { ...n, x: lerp(o.x, n.x, t), y: lerp(o.y, n.y, t), height };
   });
   for (const o of to) {
     if (!seen.has(o.id)) mixed.push(o);
@@ -46,6 +65,7 @@ export function trailsBetween(
   for (const o of from) {
     const n = dest.get(o.id);
     if (!n) continue;
+    if (o.kind === "cone" || o.kind === "text") continue;
     if (Math.hypot(n.x - o.x, n.y - o.y) < minDist) continue;
     trails.push({
       kind: o.kind,

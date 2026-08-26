@@ -1,6 +1,7 @@
 export type CourtType = "half" | "full";
 export type RosterSize = 6 | 9;
-export type ObjKind = "player" | "ball";
+export type ObjKind = "player" | "ball" | "cone" | "text";
+export type BallFlight = "fast" | "slow";
 
 export type CourtObject = {
   id: string;
@@ -9,6 +10,14 @@ export type CourtObject = {
   y: number;
   label: string;
   color: string;
+  /** 공만 사용. 미터 단위 높이. 없으면 3D에서 자동. */
+  height?: number;
+  /** 공만 사용. 다음 컷으로 가는 이동. 없으면 보통. */
+  flight?: BallFlight;
+  /** 텍스트만 사용. 기본 18. */
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
 };
 
 export type ZoneMode = "none" | "6" | "9" | "split-tb" | "split-lr";
