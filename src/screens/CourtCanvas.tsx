@@ -3,6 +3,8 @@ import { bandFromHeight, flightShort } from "../lib/ballFlight";
 import { getBallSprite, loadBallSprite } from "../lib/ballSprite";
 import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
 import { courtMeters, netYNorm } from "../lib/defaultPlay";
+import { coverageRadius, defaultCoverageOn, fanSectorPoints } from "../lib/inspect";
+import { zoneCells } from "../lib/zones";
 import { isLightColor } from "../lib/colors";
 import type { Trail } from "../lib/interpolate";
 import { resolveStrokeKind } from "../lib/stroke";
@@ -79,6 +81,8 @@ type Props = {
   ) => void;
   onEraseBegin?: () => void;
   onEraseAt?: (x: number, y: number) => void;
+  showCoverage?: boolean;
+  holeAlpha?: number;
 };
 
 export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCanvas(
@@ -99,6 +103,8 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
     onStrokeEnd,
     onEraseBegin,
     onEraseAt,
+    showCoverage = false,
+    holeAlpha = 0,
   },
   ref,
 ) {
@@ -113,6 +119,8 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   const drawColorRef = useRef(drawColor);
   const drawKindRef = useRef(drawKind);
   const interactiveRef = useRef(interactive);
+  const showCoverageRef = useRef(showCoverage);
+  const holeAlphaRef = useRef(holeAlpha);
   const rectRef = useRef<CourtRect>({ x: 0, y: 0, w: 1, h: 1 });
   const dragRef = useRef<{
     id: string;
@@ -158,6 +166,8 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   drawColorRef.current = drawColor;
   drawKindRef.current = drawKind;
   interactiveRef.current = interactive;
+  showCoverageRef.current = showCoverage;
+  holeAlphaRef.current = holeAlpha;
 
   const paint = useRef(() => {});
 
@@ -196,6 +206,8 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         liveStyle: liveStyleRef.current,
         lasers: lasersRef.current,
         now: performance.now(),
+        showCoverage: showCoverageRef.current,
+        holeAlpha: holeAlphaRef.current,
       },
       ballSpinRef.current,
       lastBallPosRef.current,
@@ -215,7 +227,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
 
   useEffect(() => {
     paint.current();
-  }, [objects, court, trails, strokes, zoneMode, drawColor, drawKind]);
+  }, [objects, court, trails, strokes, zoneMode, drawColor, drawKind, showCoverage, holeAlpha]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -305,6 +317,8 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             liveStyle: liveStyleRef.current,
             lasers: [],
             now: 0,
+            showCoverage: showCoverageRef.current,
+            holeAlpha: holeAlphaRef.current,
           },
           ballSpin,
           lastBallPos,
@@ -576,6 +590,8 @@ type Scene = {
   liveStyle: { color: string; kind: StrokeKind; laser: boolean };
   lasers: LaserMark[];
   now: number;
+  showCoverage: boolean;
+  holeAlpha: number;
 };
 
 function paintScene(
@@ -634,6 +650,17 @@ function paintScene(
   for (const trail of scene.trails) {
     drawTrail(ctx, rect, trail);
   }
+  if (scene.showCoverage) {
+    for (const obj of scene.objects) {
+      drawCoverage(ctx, rect, obj, scene.court);
+    }
+  }
+  for (const obj of scene.objects) {
+    if (obj.kind === "ball" && obj.fan) {
+      drawFan(ctx, rect, obj, obj.fan, scene.court);
+    }
+  }
+  drawCoverageHoles(ctx, rect, scene.objects, scene.court, scene.holeAlpha);
   for (const obj of scene.objects) {
     drawObject(ctx, rect, obj, ballSpin, lastBallPos);
   }
@@ -786,6 +813,97 @@ function objectScreen(rect: CourtRect, obj: { x: number; y: number }) {
   };
 }
 
+function hexAlpha(hex: string, a: number) {
+  const h = hex.replace("#", "");
+  if (h.length < 6) return `rgba(255,255,255,${a})`;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function drawCoverage(
+  ctx: CanvasRenderingContext2D,
+  rect: CourtRect,
+  obj: CourtObject,
+  court: CourtType,
+) {
+  if (obj.kind !== "player" || !defaultCoverageOn(obj)) return;
+  const { width, length } = courtMeters(court);
+  const r = coverageRadius(obj);
+  const p = objectScreen(rect, obj);
+  ctx.beginPath();
+  ctx.ellipse(p.x, p.y, (r / width) * rect.w, (r / length) * rect.h, 0, 0, Math.PI * 2);
+  ctx.fillStyle = hexAlpha(obj.color, 0.28);
+  ctx.fill();
+  ctx.strokeStyle = hexAlpha(obj.color, 0.8);
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+}
+
+function drawFan(
+  ctx: CanvasRenderingContext2D,
+  rect: CourtRect,
+  ball: CourtObject,
+  fan: NonNullable<CourtObject["fan"]>,
+  court: CourtType,
+) {
+  const pts = fanSectorPoints(ball, fan, court);
+  ctx.beginPath();
+  const first = objectScreen(rect, pts[0]);
+  ctx.moveTo(first.x, first.y);
+  for (let i = 1; i < pts.length; i++) {
+    const p = objectScreen(rect, pts[i]);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "rgba(255, 213, 79, 0.28)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 213, 79, 0.92)";
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+}
+
+function ourCourtScreen(rect: CourtRect, court: CourtType): CourtRect {
+  const net = netYNorm(court);
+  return {
+    x: rect.x,
+    y: rect.y + (1 - net) * rect.h,
+    w: rect.w,
+    h: net * rect.h,
+  };
+}
+
+function drawCoverageHoles(
+  ctx: CanvasRenderingContext2D,
+  rect: CourtRect,
+  objects: CourtObject[],
+  court: CourtType,
+  alpha: number,
+) {
+  if (alpha <= 0) return;
+  const ours = ourCourtScreen(rect, court);
+  const { width, length } = courtMeters(court);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ours.x, ours.y, ours.w, ours.h);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.rect(ours.x, ours.y, ours.w, ours.h);
+  for (const obj of objects) {
+    if (obj.kind !== "player" || !defaultCoverageOn(obj)) continue;
+    const r = coverageRadius(obj);
+    const p = objectScreen(rect, obj);
+    const rx = (r / width) * rect.w;
+    const ry = (r / length) * rect.h;
+    ctx.moveTo(p.x + rx, p.y);
+    ctx.ellipse(p.x, p.y, rx, ry, 0, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = `rgba(214, 218, 228, ${alpha})`;
+  ctx.fill("evenodd");
+  ctx.restore();
+}
+
 function drawCourt(
   ctx: CanvasRenderingContext2D,
   rect: CourtRect,
@@ -833,36 +951,8 @@ function drawZones(
   court: CourtType,
   mode: ZoneMode,
 ) {
-  if (mode === "none") return;
-  const net = netYNorm(court);
-  let cols = 3;
-  let rows = 3;
-  let grid: (string | number)[][] = [];
-
-  if (mode === "split-tb") {
-    cols = 1;
-    rows = 2;
-    grid = [[2], [1]];
-  } else if (mode === "split-lr") {
-    cols = 2;
-    rows = 1;
-    grid = [[1, 2]];
-  } else if (mode === "6") {
-    cols = 3;
-    rows = 2;
-    grid = [
-      [5, 6, 1],
-      [4, 3, 2],
-    ];
-  } else {
-    cols = 3;
-    rows = 3;
-    grid = [
-      [5, 6, 1],
-      [7, 8, 9],
-      [4, 3, 2],
-    ];
-  }
+  const cells = zoneCells(mode, court);
+  if (cells.length === 0) return;
 
   ctx.save();
   ctx.textAlign = "center";
@@ -871,23 +961,16 @@ function drawZones(
   ctx.strokeStyle = "rgba(255,255,255,0.18)";
   ctx.lineWidth = 1;
 
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x0 = c / cols;
-      const x1 = (c + 1) / cols;
-      const y0 = (r / rows) * net;
-      const y1 = ((r + 1) / rows) * net;
-      const a = objectScreen(rect, { x: x0, y: y0 });
-      const b = objectScreen(rect, { x: x1, y: y1 });
-      const left = Math.min(a.x, b.x);
-      const top = Math.min(a.y, b.y);
-      const w = Math.abs(b.x - a.x);
-      const h = Math.abs(b.y - a.y);
-      ctx.strokeRect(left, top, w, h);
-      const n = grid[r][c];
-      ctx.font = `700 ${Math.max(18, Math.min(w, h) * 0.42)}px system-ui, sans-serif`;
-      ctx.fillText(String(n), left + w / 2, top + h / 2);
-    }
+  for (const cell of cells) {
+    const a = objectScreen(rect, { x: cell.x0, y: cell.y0 });
+    const b = objectScreen(rect, { x: cell.x1, y: cell.y1 });
+    const left = Math.min(a.x, b.x);
+    const top = Math.min(a.y, b.y);
+    const w = Math.abs(b.x - a.x);
+    const h = Math.abs(b.y - a.y);
+    ctx.strokeRect(left, top, w, h);
+    ctx.font = `700 ${Math.max(18, Math.min(w, h) * 0.42)}px system-ui, sans-serif`;
+    ctx.fillText(cell.label, left + w / 2, top + h / 2);
   }
   ctx.restore();
 }
@@ -1015,6 +1098,7 @@ function drawObject(
   obj: CourtObject,
   ballSpin: Map<string, number>,
   lastBallPos: Map<string, { x: number; y: number }>,
+  highlighted = false,
 ) {
   const p = objectScreen(rect, obj);
   const size = Math.min(rect.w, rect.h);
@@ -1045,6 +1129,7 @@ function drawObject(
     }
     const fly = flightShort(obj.flight);
     if (fly) tags.push(fly);
+    if (obj.fan) tags.push("부채");
     if (tags.length > 0) {
       const tag = tags.join("·");
       const chipH = Math.max(12, r * 0.72);
@@ -1072,6 +1157,13 @@ function drawObject(
   }
 
   const r = size * 0.048;
+  if (highlighted) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffd54f";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
   ctx.fillStyle = obj.color;

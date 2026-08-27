@@ -56,12 +56,14 @@ type Route =
   | { name: "main"; tab: Tab }
   | { name: "album"; albumId: string; tab: Tab }
   | { name: "editor"; playId: string; back: Exclude<Route, { name: "editor" }> }
-  | { name: "preset-editor"; presetId: string };
+  | { name: "preset-editor"; presetId: string; back?: Exclude<Route, { name: "preset-editor" }> };
 
 type PendingDelete =
   | { kind: "play"; play: Play }
   | { kind: "album"; album: Album }
   | { kind: "preset"; preset: FormationPreset };
+
+type PendingRename = { kind: "album"; album: Album } | { kind: "play"; play: Play };
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ name: "main", tab: "home" });
@@ -76,7 +78,7 @@ export default function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForAlbumId, setCreateForAlbumId] = useState<string | null>(null);
   const [createAlbumOpen, setCreateAlbumOpen] = useState(false);
-  const [renameAlbumOpen, setRenameAlbumOpen] = useState(false);
+  const [pendingRename, setPendingRename] = useState<PendingRename | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [importPending, setImportPending] = useState<BackupBundle | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -216,21 +218,27 @@ export default function App() {
 
   async function handleDelete() {
     if (!pendingDelete) return;
-    if (pendingDelete.kind === "play") {
-      await deletePlay(pendingDelete.play.id);
-      if (route.name === "editor" && route.playId === pendingDelete.play.id) {
-        setRoute(route.back);
+    const target = pendingDelete;
+    try {
+      if (target.kind === "play") {
+        await deletePlay(target.play.id);
+        if (route.name === "editor" && route.playId === target.play.id) {
+          setRoute(route.back);
+        }
+      } else if (target.kind === "album") {
+        await deleteAlbum(target.album.id);
+        if (route.name === "album" && route.albumId === target.album.id) {
+          setRoute({ name: "main", tab: route.tab });
+        }
+      } else {
+        await deletePreset(target.preset.id);
       }
-    } else if (pendingDelete.kind === "album") {
-      await deleteAlbum(pendingDelete.album.id);
-      if (route.name === "album" && route.albumId === pendingDelete.album.id) {
-        setRoute({ name: "main", tab: route.tab });
-      }
-    } else {
-      await deletePreset(pendingDelete.preset.id);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "삭제하지 못했습니다.");
+    } finally {
+      setPendingDelete(null);
+      await refresh();
     }
-    setPendingDelete(null);
-    await refresh();
   }
 
   async function handleCreateAlbum(title: string) {
@@ -314,6 +322,23 @@ export default function App() {
             setRoute({ ...route, playId: next.id });
           }}
           onCreateAlbum={handleCreateAlbum}
+          onCreateFormation={(fromPlay) => {
+            const preset = createPreset({
+              court: fromPlay.court,
+              rosterSize: fromPlay.rosterSize,
+            });
+            void savePreset(preset).then(async () => {
+              await refresh();
+              setRoute({
+                name: "preset-editor",
+                presetId: preset.id,
+                back:
+                  route.name === "editor"
+                    ? { name: "editor", playId: fromPlay.id, back: route.back }
+                    : { name: "main", tab: "home" },
+              });
+            });
+          }}
         />
         {backupOverlays}
       </>
@@ -332,7 +357,7 @@ export default function App() {
           onChange={setEditorPreset}
           onBack={() => {
             void refresh();
-            setRoute({ name: "main", tab: "home" });
+            setRoute(route.back ?? { name: "main", tab: "home" });
           }}
         />
         {backupOverlays}
@@ -365,7 +390,7 @@ export default function App() {
               plays={plays.filter((p) => p.albumId === album.id)}
               covers={covers}
               onBack={() => setRoute({ name: "main", tab: route.tab })}
-              onRename={() => setRenameAlbumOpen(true)}
+              onRename={() => setPendingRename({ kind: "album", album })}
               onNewPlay={() => {
                 setCreateForAlbumId(album.id);
                 setCreateOpen(true);
@@ -377,6 +402,7 @@ export default function App() {
                   back: { name: "album", albumId: album.id, tab: route.tab },
                 })
               }
+              onRenamePlay={(play) => setPendingRename({ kind: "play", play })}
               onDeletePlay={(play) => setPendingDelete({ kind: "play", play })}
               onCoverChange={(id, kind, blob) => void handleCoverChange(id, kind, blob)}
             />
@@ -391,6 +417,7 @@ export default function App() {
             covers={covers}
             onNewAlbum={() => setCreateAlbumOpen(true)}
             onOpenAlbum={(id) => setRoute({ name: "album", albumId: id, tab: "home" })}
+            onRenameAlbum={(a) => setPendingRename({ kind: "album", album: a })}
             onDeleteAlbum={(a) => setPendingDelete({ kind: "album", album: a })}
             onCoverChange={(id, kind, blob) => void handleCoverChange(id, kind, blob)}
             onNewPreset={() => {
@@ -496,18 +523,28 @@ export default function App() {
         }}
       />
       <RenameModal
-        open={renameAlbumOpen}
-        title="전술 프로젝트 이름"
+        open={Boolean(pendingRename)}
+        title={pendingRename?.kind === "play" ? "전술 이름" : "전술 프로젝트 이름"}
         label="이름"
-        initial={album?.title ?? ""}
+        initial={
+          pendingRename?.kind === "play"
+            ? pendingRename.play.title
+            : pendingRename?.album.title ?? ""
+        }
         confirmLabel="저장"
-        onClose={() => setRenameAlbumOpen(false)}
+        onClose={() => setPendingRename(null)}
         onSubmit={(title) => {
-          if (!album) return;
-          const next = { ...album, title, updatedAt: Date.now() };
-          setAlbum(next);
-          setRenameAlbumOpen(false);
-          void saveAlbum(next).then(() => refresh());
+          if (!pendingRename) return;
+          if (pendingRename.kind === "album") {
+            const next = { ...pendingRename.album, title, updatedAt: Date.now() };
+            if (album?.id === next.id) setAlbum(next);
+            setPendingRename(null);
+            void saveAlbum(next).then(() => refresh());
+            return;
+          }
+          const next = { ...pendingRename.play, title, updatedAt: Date.now() };
+          setPendingRename(null);
+          void savePlay(next).then(() => refresh());
         }}
       />
       <ConfirmModal

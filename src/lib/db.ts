@@ -8,42 +8,52 @@ export type CoverRecord = {
 };
 
 const DB_NAME = "volleyball-playbook";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
+const STORE_NAMES = ["plays", "albums", "presets", "captures", "covers"] as const;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains("plays")) {
-        db.createObjectStore("plays", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("albums")) {
-        db.createObjectStore("albums", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("presets")) {
-        db.createObjectStore("presets", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("captures")) {
-        db.createObjectStore("captures", { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains("covers")) {
-        db.createObjectStore("covers", { keyPath: "id" });
+      for (const name of STORE_NAMES) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name, { keyPath: "id" });
+        }
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
+}
+
+function hasStore(db: IDBDatabase, store: string) {
+  return db.objectStoreNames.contains(store);
 }
 
 function getAll<T>(store: string): Promise<T[]> {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
+        if (!hasStore(db, store)) {
+          db.close();
+          resolve([]);
+          return;
+        }
         const tx = db.transaction(store, "readonly");
         const req = tx.objectStore(store).getAll();
-        req.onsuccess = () => resolve(req.result as T[]);
-        req.onerror = () => reject(req.error);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(req.result as T[]);
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
       }),
   );
 }
@@ -52,10 +62,21 @@ function getOne<T>(store: string, id: string): Promise<T | undefined> {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
+        if (!hasStore(db, store)) {
+          db.close();
+          resolve(undefined);
+          return;
+        }
         const tx = db.transaction(store, "readonly");
         const req = tx.objectStore(store).get(id);
-        req.onsuccess = () => resolve(req.result as T | undefined);
-        req.onerror = () => reject(req.error);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(req.result as T | undefined);
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
       }),
   );
 }
@@ -64,10 +85,21 @@ function putOne(store: string, value: unknown): Promise<void> {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
+        if (!hasStore(db, store)) {
+          db.close();
+          reject(new Error(`저장소 ${store}가 없습니다.`));
+          return;
+        }
         const tx = db.transaction(store, "readwrite");
         tx.objectStore(store).put(value);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
       }),
   );
 }
@@ -76,10 +108,21 @@ function deleteOne(store: string, id: string): Promise<void> {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
+        if (!hasStore(db, store)) {
+          db.close();
+          resolve();
+          return;
+        }
         const tx = db.transaction(store, "readwrite");
         tx.objectStore(store).delete(id);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
       }),
   );
 }
@@ -88,10 +131,21 @@ function clearStore(store: string): Promise<void> {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
+        if (!hasStore(db, store)) {
+          db.close();
+          resolve();
+          return;
+        }
         const tx = db.transaction(store, "readwrite");
         tx.objectStore(store).clear();
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          reject(tx.error);
+        };
       }),
   );
 }

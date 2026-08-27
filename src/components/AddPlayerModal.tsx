@@ -1,40 +1,89 @@
 import { useEffect, useState } from "react";
 import { isLightColor, OUR_TEAM_COLORS } from "../lib/colors";
-import { COVERAGE_DEFAULT, COVERAGE_MAX, COVERAGE_MIN, defaultCoverageOn } from "../lib/inspect";
-import { LIBERO_WHITE, TEAM_BLUE, TEAM_RED, type CourtObject } from "../types/play";
+import { COVERAGE_DEFAULT, COVERAGE_MAX, COVERAGE_MIN } from "../lib/inspect";
+import { LIBERO_WHITE, TEAM_BLUE, TEAM_RED } from "../types/play";
 import { Modal } from "./Modal";
 
-type Props = {
-  object: CourtObject | null;
-  onClose: () => void;
-  onSave: (patch: {
-    label: string;
-    color: string;
-    coverageOn: boolean;
-    coverageM: number;
-  }) => void;
-  onDelete: () => void;
+const POSITION_CHIPS = ["S", "OH", "MB", "OP", "L", "WS", "P"] as const;
+
+export type NewPlayerDraft = {
+  label: string;
+  color: string;
+  coverageOn: boolean;
+  coverageM: number;
 };
 
-export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
-  const [label, setLabel] = useState("");
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  onCreate: (draft: NewPlayerDraft) => void;
+};
+
+export function AddPlayerModal({ open, onClose, onCreate }: Props) {
+  const [label, setLabel] = useState("P");
   const [color, setColor] = useState(TEAM_RED);
-  const [coverageOn, setCoverageOn] = useState(false);
+  const [coverageOn, setCoverageOn] = useState(true);
   const [coverageM, setCoverageM] = useState(COVERAGE_DEFAULT);
 
   useEffect(() => {
-    if (!object) return;
-    setLabel(object.label);
-    setColor(object.color);
-    setCoverageOn(defaultCoverageOn(object));
-    setCoverageM(object.coverageM ?? COVERAGE_DEFAULT);
-  }, [object]);
+    if (!open) return;
+    setLabel("P");
+    setColor(TEAM_RED);
+    setCoverageOn(true);
+    setCoverageM(COVERAGE_DEFAULT);
+  }, [open]);
 
-  if (!object || object.kind !== "player") return null;
+  function pickOurs(next = TEAM_RED) {
+    setColor(next);
+    setCoverageOn(true);
+  }
+
+  function pickOpponent() {
+    setColor(TEAM_BLUE);
+    setCoverageOn(false);
+  }
+
+  const ours = color.toLowerCase() !== TEAM_BLUE.toLowerCase();
 
   return (
-    <Modal open title="선수 정보" onClose={onClose}>
+    <Modal open={open} title="선수 추가" onClose={onClose}>
+      <p className="mb-2 text-sm text-white/70">소속</p>
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className={`rounded-xl py-2.5 text-sm font-semibold ${
+            ours ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+          }`}
+          onClick={() => pickOurs(ours ? color : TEAM_RED)}
+        >
+          우리팀
+        </button>
+        <button
+          type="button"
+          className={`rounded-xl py-2.5 text-sm font-semibold ${
+            !ours ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+          }`}
+          onClick={pickOpponent}
+        >
+          상대팀
+        </button>
+      </div>
+
       <label className="mb-1 block text-sm text-white/70">이름 / 포지션</label>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {POSITION_CHIPS.map((chip) => (
+          <button
+            key={chip}
+            type="button"
+            className={`rounded-lg px-2 py-1 text-[11px] font-semibold ${
+              label === chip ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            }`}
+            onClick={() => setLabel(chip)}
+          >
+            {chip}
+          </button>
+        ))}
+      </div>
       <input
         className="mb-4 w-full rounded-xl bg-ink px-3 py-3 outline-none ring-1 ring-line focus:ring-accent"
         value={label}
@@ -50,7 +99,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
             key={c.n}
             type="button"
             title={`${c.n}. ${c.label}`}
-            onClick={() => setColor(c.value)}
+            onClick={() => pickOurs(c.value)}
             className={`flex aspect-square items-center justify-center rounded-xl text-sm font-bold ring-2 ${
               color === c.value ? "ring-white" : "ring-transparent"
             }`}
@@ -68,7 +117,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
       <div className="mb-5 grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => setColor(TEAM_BLUE)}
+          onClick={pickOpponent}
           className={`rounded-xl py-2.5 text-xs font-medium text-white ring-1 ${
             color === TEAM_BLUE ? "ring-accent" : "ring-line"
           }`}
@@ -78,7 +127,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => setColor(LIBERO_WHITE)}
+          onClick={() => pickOurs(LIBERO_WHITE)}
           className={`rounded-xl py-2.5 text-xs font-medium ring-1 ${
             color === LIBERO_WHITE ? "ring-accent" : "ring-line"
           }`}
@@ -136,13 +185,6 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
       <div className="flex gap-2">
         <button
           type="button"
-          className="rounded-xl bg-red-800 px-3 py-3 text-sm font-semibold"
-          onClick={onDelete}
-        >
-          삭제
-        </button>
-        <button
-          type="button"
           className="flex-1 rounded-xl bg-ink py-3 text-white/80 ring-1 ring-line"
           onClick={onClose}
         >
@@ -152,15 +194,15 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
           type="button"
           className="flex-1 rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={() =>
-            onSave({
-              label: label.trim() || object.label,
+            onCreate({
+              label: label.trim() || "P",
               color,
               coverageOn,
               coverageM,
             })
           }
         >
-          적용
+          추가
         </button>
       </div>
     </Modal>

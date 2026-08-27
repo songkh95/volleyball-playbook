@@ -11,6 +11,7 @@ type Props = {
   covers: Record<string, Blob>;
   onNewAlbum: () => void;
   onOpenAlbum: (id: string) => void;
+  onRenameAlbum: (album: Album) => void;
   onDeleteAlbum: (album: Album) => void;
   onCoverChange: (id: string, kind: "album" | "play", blob: Blob | null) => void;
   onNewPreset: () => void;
@@ -27,6 +28,7 @@ export function HomeScreen({
   covers,
   onNewAlbum,
   onOpenAlbum,
+  onRenameAlbum,
   onDeleteAlbum,
   onCoverChange,
   onNewPreset,
@@ -131,6 +133,7 @@ export function HomeScreen({
                   <CoverCardGear
                     hasCover={Boolean(covers[album.id])}
                     onCoverChange={(blob) => onCoverChange(album.id, "album", blob)}
+                    onRename={() => onRenameAlbum(album)}
                     onDelete={() => onDeleteAlbum(album)}
                   />
                 </article>

@@ -2,15 +2,30 @@ import { TEAM_BLUE, TEAM_RED, type CourtObject, type CourtType } from "../types/
 import { netYNorm } from "./defaultPlay";
 import { uid } from "./id";
 
-export function newPlayer(court: CourtType): CourtObject {
+export function newPlayer(
+  court: CourtType,
+  opts?: {
+    label?: string;
+    color?: string;
+    coverageOn?: boolean;
+    coverageM?: number;
+    x?: number;
+    y?: number;
+  },
+): CourtObject {
   const net = netYNorm(court);
+  const color = opts?.color ?? TEAM_RED;
+  const ours = color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+  const coverageOn = opts?.coverageOn ?? ours;
   return {
     id: uid(),
     kind: "player",
-    x: 0.5,
-    y: net * 0.2,
-    label: "P",
-    color: TEAM_RED,
+    x: opts?.x ?? 0.5,
+    y: opts?.y ?? (ours ? net * 0.2 : (net + 1) / 2),
+    label: opts?.label ?? "P",
+    color,
+    coverageOn,
+    coverageM: coverageOn ? (opts?.coverageM ?? 2.5) : undefined,
   };
 }
 

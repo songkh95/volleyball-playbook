@@ -10,6 +10,7 @@ type Props = {
   onRename: () => void;
   onNewPlay: () => void;
   onOpenPlay: (id: string) => void;
+  onRenamePlay: (play: Play) => void;
   onDeletePlay: (play: Play) => void;
   onCoverChange: (id: string, kind: "album" | "play", blob: Blob | null) => void;
 };
@@ -22,6 +23,7 @@ export function AlbumScreen({
   onRename,
   onNewPlay,
   onOpenPlay,
+  onRenamePlay,
   onDeletePlay,
   onCoverChange,
 }: Props) {
@@ -49,6 +51,44 @@ export function AlbumScreen({
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-3">
+          {[...plays]
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map((play) => (
+              <article
+                key={play.id}
+                className="relative flex aspect-[3/4] flex-col rounded-2xl bg-panel ring-1 ring-line"
+              >
+                <div className="flex min-h-0 flex-1 flex-col p-3">
+                  <CoverSlot
+                    cover={covers[play.id]}
+                    onOpen={() => onOpenPlay(play.id)}
+                    fallback={
+                      <CourtThumb
+                        court={play.court}
+                        objects={play.cuts[0]?.objects ?? []}
+                      />
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="mt-2 text-left"
+                    onClick={() => onOpenPlay(play.id)}
+                  >
+                    <h2 className="truncate text-sm font-semibold">{play.title}</h2>
+                    <p className="text-xs text-white/50">
+                      {play.court === "half" ? "하프" : "풀"} · {play.rosterSize}인 · 컷{" "}
+                      {play.cuts.length}
+                    </p>
+                  </button>
+                </div>
+                <CoverCardGear
+                  hasCover={Boolean(covers[play.id])}
+                  onCoverChange={(blob) => onCoverChange(play.id, "play", blob)}
+                  onRename={() => onRenamePlay(play)}
+                  onDelete={() => onDeletePlay(play)}
+                />
+              </article>
+          ))}
           <button
             type="button"
             onClick={onNewPlay}
@@ -57,41 +97,6 @@ export function AlbumScreen({
             <span className="text-4xl font-light leading-none">+</span>
             <span className="mt-2 text-sm">새 전술</span>
           </button>
-          {plays.map((play) => (
-            <article
-              key={play.id}
-              className="relative flex aspect-[3/4] flex-col rounded-2xl bg-panel ring-1 ring-line"
-            >
-              <div className="flex min-h-0 flex-1 flex-col p-3">
-                <CoverSlot
-                  cover={covers[play.id]}
-                  onOpen={() => onOpenPlay(play.id)}
-                  fallback={
-                    <CourtThumb
-                      court={play.court}
-                      objects={play.cuts[0]?.objects ?? []}
-                    />
-                  }
-                />
-                <button
-                  type="button"
-                  className="mt-2 text-left"
-                  onClick={() => onOpenPlay(play.id)}
-                >
-                  <h2 className="truncate text-sm font-semibold">{play.title}</h2>
-                  <p className="text-xs text-white/50">
-                    {play.court === "half" ? "하프" : "풀"} · {play.rosterSize}인 · 컷{" "}
-                    {play.cuts.length}
-                  </p>
-                </button>
-              </div>
-              <CoverCardGear
-                hasCover={Boolean(covers[play.id])}
-                onCoverChange={(blob) => onCoverChange(play.id, "play", blob)}
-                onDelete={() => onDeletePlay(play)}
-              />
-            </article>
-          ))}
         </div>
       </div>
     </div>

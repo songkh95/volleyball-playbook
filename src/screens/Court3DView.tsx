@@ -35,10 +35,12 @@ import {
   type CameraCorner,
 } from "../lib/court3d";
 import { courtMeters } from "../lib/defaultPlay";
+import { coverageRadius, defaultCoverageOn } from "../lib/inspect";
 import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
 import { yieldToUi } from "../lib/exportMovie";
 import { viewAtPlayhead, type Trail } from "../lib/interpolate";
-import type { CourtObject, CourtType, Cut, Stroke } from "../types/play";
+import type { CourtObject, CourtType, Cut, Stroke, ZoneMode } from "../types/play";
+import { zoneCells } from "../lib/zones";
 
 const EXPORT_WIDTH = 480;
 
@@ -61,6 +63,9 @@ type Props = {
   trails: Trail[];
   strokes: Stroke[];
   showTrails: boolean;
+  showCoverage?: boolean;
+  holeAlpha?: number;
+  zoneMode?: ZoneMode;
   cameraPreset: CameraCorner;
   cameraNonce: number;
 };
@@ -127,8 +132,8 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
           position: [pose.position.x, pose.position.y, pose.position.z],
         }}
         onCreated={({ gl, scene, camera }) => {
-          gl.setClearColor("#10151f", 1);
-          scene.background = new THREE.Color("#10151f");
+          gl.setClearColor("#5d6774", 1);
+          scene.background = new THREE.Color("#5d6774");
           camera.up.set(0, 1, 0);
           camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
         }}
@@ -175,7 +180,7 @@ function grabFrame(api: ThreeApi | null) {
   off.height = h;
   const ctx = off.getContext("2d", { alpha: false });
   if (!ctx) throw new Error("3D 코트를 캡처할 수 없습니다.");
-  ctx.fillStyle = "#10151f";
+  ctx.fillStyle = "#5d6774";
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(src, 0, 0, w, h);
   return ctx.getImageData(0, 0, w, h);
@@ -206,15 +211,37 @@ function Scene(props: Props) {
 
   return (
     <>
-      <color attach="background" args={["#10151f"]} />
-      <hemisphereLight args={["#e8eef6", "#3a2c20", 0.9]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[8, 18, 10]} intensity={1.6} />
-      <directionalLight position={[-10, 8, -6]} intensity={0.45} />
+      <color attach="background" args={["#5d6774"]} />
+      <hemisphereLight args={["#f2f4f8", "#8a7a62", 1.05]} />
+      <ambientLight intensity={0.72} />
+      <directionalLight position={[8, 18, 10]} intensity={1.75} />
+      <directionalLight position={[-10, 8, -6]} intensity={0.55} />
       <Gym court={props.court} />
       <CourtSurface court={props.court} />
       <CourtLines court={props.court} />
+      <ZoneGuides court={props.court} mode={props.zoneMode ?? "none"} />
       <Net court={props.court} />
+      {props.showCoverage
+        ? props.objects
+            .filter((o) => o.kind === "player" && defaultCoverageOn(o))
+            .map((o) => (
+              <CoverageDisk key={`cov-${o.id}`} obj={o} court={props.court} />
+            ))
+        : null}
+      {props.objects
+        .filter((o) => o.kind === "ball" && o.fan)
+        .map((o) => (
+          <LandingSector key={`fan-${o.id}`} ball={o} court={props.court} />
+        ))}
+      {props.holeAlpha
+        ? (
+            <CoverageHoles
+              objects={props.objects}
+              court={props.court}
+              alpha={props.holeAlpha}
+            />
+          )
+        : null}
       {props.objects
         .filter((o) => o.kind === "player")
         .map((o) => (
@@ -309,29 +336,29 @@ function Gym({ court }: { court: CourtType }) {
   const wallH = 11;
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]} receiveShadow>
         <planeGeometry args={[floorW, floorL]} />
-        <meshBasicMaterial color="#241c16" />
+        <meshStandardMaterial color="#3e2f1c" roughness={0.9} metalness={0.02} />
       </mesh>
       <mesh position={[0, wallH / 2, -floorL / 2]}>
         <planeGeometry args={[floorW, wallH]} />
-        <meshStandardMaterial color="#1a2330" />
+        <meshStandardMaterial color="#6b7686" />
       </mesh>
       <mesh position={[0, wallH / 2, floorL / 2]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[floorW, wallH]} />
-        <meshStandardMaterial color="#1a2330" />
+        <meshStandardMaterial color="#6b7686" />
       </mesh>
       <mesh position={[-floorW / 2, wallH / 2, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[floorL, wallH]} />
-        <meshStandardMaterial color="#17202c" />
+        <meshStandardMaterial color="#616b7a" />
       </mesh>
       <mesh position={[floorW / 2, wallH / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[floorL, wallH]} />
-        <meshStandardMaterial color="#17202c" />
+        <meshStandardMaterial color="#616b7a" />
       </mesh>
       <mesh position={[0, wallH, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[floorW, floorL]} />
-        <meshStandardMaterial color="#0e131c" />
+        <meshStandardMaterial color="#8b95a3" />
       </mesh>
       {([1, -1] as const).map((side) =>
         [0, 1, 2, 3].map((step) => (
@@ -353,6 +380,89 @@ function Gym({ court }: { court: CourtType }) {
   );
 }
 
+function CoverageDisk({ obj, court }: { obj: CourtObject; court: CourtType }) {
+  const { x, z } = courtToWorld(obj.x, obj.y, court);
+  const r = coverageRadius(obj);
+  return (
+    <mesh position={[x, 0.022, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[r, 48]} />
+      <meshBasicMaterial
+        color={obj.color}
+        transparent
+        opacity={0.28}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+function LandingSector({ ball, court }: { ball: CourtObject; court: CourtType }) {
+  const fan = ball.fan;
+  const { x, z } = courtToWorld(ball.x, ball.y, court);
+  if (!fan) return null;
+  const thetaStart = Math.PI / 2 - fan.heading - fan.spread / 2;
+  return (
+    <mesh position={[x, 0.024, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <circleGeometry args={[fan.depth, 48, thetaStart, fan.spread]} />
+      <meshBasicMaterial
+        color="#ffd54f"
+        transparent
+        opacity={0.28}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+function CoverageHoles({
+  objects,
+  court,
+  alpha,
+}: {
+  objects: CourtObject[];
+  court: CourtType;
+  alpha: number;
+}) {
+  const geom = useMemo(() => {
+    const { width, length } = courtMeters(court);
+    const hw = width / 2;
+    const hl = length / 2;
+    const ourEndY = -hl;
+    const netY = -netWorldZ(court);
+    const shape = new THREE.Shape();
+    shape.moveTo(-hw, ourEndY);
+    shape.lineTo(hw, ourEndY);
+    shape.lineTo(hw, netY);
+    shape.lineTo(-hw, netY);
+    shape.closePath();
+    for (const o of objects) {
+      if (o.kind !== "player" || !defaultCoverageOn(o)) continue;
+      const { x, z } = courtToWorld(o.x, o.y, court);
+      const r = coverageRadius(o);
+      const hole = new THREE.Path();
+      hole.absellipse(x, -z, r, r, 0, Math.PI * 2, true);
+      shape.holes.push(hole);
+    }
+    return new THREE.ShapeGeometry(shape);
+  }, [objects, court]);
+
+  useEffect(() => () => geom.dispose(), [geom]);
+  if (alpha <= 0) return null;
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]} geometry={geom}>
+      <meshBasicMaterial
+        color="#c6c8d2"
+        transparent
+        opacity={alpha}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
 function CourtSurface({ court }: { court: CourtType }) {
   const { width, length } = courtMeters(court);
   return (
@@ -360,6 +470,64 @@ function CourtSurface({ court }: { court: CourtType }) {
       <planeGeometry args={[width, length]} />
       <meshBasicMaterial color="#e87830" />
     </mesh>
+  );
+}
+
+function ZoneGuides({ court, mode }: { court: CourtType; mode: ZoneMode }) {
+  const { width, length } = courtMeters(court);
+  const cells = useMemo(() => zoneCells(mode, court), [mode, court]);
+  const textures = useMemo(() => {
+    const map = new Map<string, THREE.CanvasTexture>();
+    for (const cell of cells) {
+      if (!map.has(cell.label)) map.set(cell.label, makeZoneNumTexture(cell.label));
+    }
+    return map;
+  }, [cells]);
+
+  useEffect(
+    () => () => {
+      for (const tex of textures.values()) tex.dispose();
+    },
+    [textures],
+  );
+
+  if (cells.length === 0) return null;
+  const yLine = 0.02;
+  const yNum = 0.03;
+  return (
+    <group>
+      {cells.map((cell) => {
+        const a = courtToWorld(cell.x0, cell.y0, court);
+        const b = courtToWorld(cell.x1, cell.y0, court);
+        const c = courtToWorld(cell.x1, cell.y1, court);
+        const d = courtToWorld(cell.x0, cell.y1, court);
+        const mid = courtToWorld((cell.x0 + cell.x1) / 2, (cell.y0 + cell.y1) / 2, court);
+        const cw = Math.abs(cell.x1 - cell.x0) * width;
+        const ch = Math.abs(cell.y1 - cell.y0) * length;
+        const size = Math.min(cw, ch) * 0.42;
+        const tex = textures.get(cell.label);
+        return (
+          <group key={`${cell.label}-${cell.x0}-${cell.y0}`}>
+            <LineSegment a={[a.x, yLine, a.z]} b={[b.x, yLine, b.z]} color="#fff4e4" width={0.03} />
+            <LineSegment a={[b.x, yLine, b.z]} b={[c.x, yLine, c.z]} color="#fff4e4" width={0.03} />
+            <LineSegment a={[c.x, yLine, c.z]} b={[d.x, yLine, d.z]} color="#fff4e4" width={0.03} />
+            <LineSegment a={[d.x, yLine, d.z]} b={[a.x, yLine, a.z]} color="#fff4e4" width={0.03} />
+            {tex ? (
+              <mesh position={[mid.x, yNum, mid.z]} rotation={[-Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[size, size]} />
+                <meshBasicMaterial
+                  map={tex}
+                  transparent
+                  opacity={0.55}
+                  depthWrite={false}
+                  side={THREE.DoubleSide}
+                />
+              </mesh>
+            ) : null}
+          </group>
+        );
+      })}
+    </group>
   );
 }
 
@@ -802,6 +970,25 @@ function FloorStroke({ stroke, court }: { stroke: Stroke; court: CourtType }) {
       ))}
     </group>
   );
+}
+
+function makeZoneNumTexture(text: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.clearRect(0, 0, 256, 256);
+    ctx.fillStyle = "rgba(255,255,255,0.82)";
+    ctx.font = "700 176px Pretendard, Apple SD Gothic Neo, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 128, 138);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 function makeLabelTexture(text: string, color: string, wide = false) {

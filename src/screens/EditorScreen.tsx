@@ -4,6 +4,7 @@ import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EditBallModal } from "../components/EditBallModal";
 import { EditConeModal } from "../components/EditConeModal";
+import { AddPlayerModal } from "../components/AddPlayerModal";
 import { EditPlayerModal } from "../components/EditPlayerModal";
 import { EditTextModal } from "../components/EditTextModal";
 import { PresetModal } from "../components/PresetModal";
@@ -12,7 +13,7 @@ import { SavePlayModal } from "../components/SavePlayModal";
 import { ZoneModal } from "../components/ZoneModal";
 import { Modal } from "../components/Modal";
 import { downloadBlob, downloadPng, fileSafeName } from "../lib/capture";
-import { duplicatePlay, nextCutName } from "../lib/defaultPlay";
+import { duplicatePlay, nextCutName, netYNorm } from "../lib/defaultPlay";
 import { saveCapture, savePlay } from "../lib/db";
 import { isPlayDirty } from "../lib/dirty";
 import {
@@ -24,17 +25,30 @@ import {
 } from "../lib/exportMovie";
 import { uid } from "../lib/id";
 import { cloneCutAfter, viewAtPlayhead } from "../lib/interpolate";
+import {
+  ballTravelToward,
+  defaultCoverageOn,
+  defaultFan,
+  HOLE_FLASH_MS,
+  HOLE_FLASHES,
+  isOpponent,
+  nudgeCoverageM,
+  nudgeFanDepth,
+  nudgeFanSpread,
+  withCoverageDefaults,
+} from "../lib/inspect";
 import { applyUserPreset, newCone, newPlayer, newText } from "../lib/presets";
 import { PEN_COLORS, strokeNearPoint } from "../lib/stroke";
-import type {
-  Album,
-  CourtObject,
-  EditorTool,
-  FormationPreset,
-  Play,
-  Stroke,
-  StrokeKind,
-  ZoneMode,
+import {
+  TEAM_BLUE,
+  type Album,
+  type CourtObject,
+  type EditorTool,
+  type FormationPreset,
+  type Play,
+  type Stroke,
+  type StrokeKind,
+  type ZoneMode,
 } from "../types/play";
 import { cameraPresets, type CameraCorner } from "../lib/court3d";
 import { CourtCanvas, type CourtCanvasHandle } from "./CourtCanvas";
@@ -55,6 +69,7 @@ type Props = {
   onSavedToGallery: (albumId: string) => void;
   onSaveAndNew: (saved: Play, next: Play) => void;
   onCreateAlbum: (title: string) => Promise<string>;
+  onCreateFormation: (play: Play) => void;
 };
 
 export function EditorScreen({
@@ -69,12 +84,13 @@ export function EditorScreen({
   onSavedToGallery,
   onSaveAndNew,
   onCreateAlbum,
+  onCreateFormation,
 }: Props) {
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState(1);
   const [speedOpen, setSpeedOpen] = useState(false);
-  const [playMenuOpen, setPlayMenuOpen] = useState(false);
+  const [looping, setLooping] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
@@ -83,6 +99,7 @@ export function EditorScreen({
   const [renameTitleOpen, setRenameTitleOpen] = useState(false);
   const [renameCut, setRenameCut] = useState<number | null>(null);
   const [zoneMode, setZoneMode] = useState<ZoneMode>("none");
+  const [addPlayerOpen, setAddPlayerOpen] = useState(false);
   const [tool, setTool] = useState<EditorTool>("select");
   const [drawOpen, setDrawOpen] = useState(false);
   const [drawKind, setDrawKind] = useState<StrokeKind>("arrow");
@@ -91,6 +108,9 @@ export function EditorScreen({
   const [albumStripOpen, setAlbumStripOpen] = useState(albumStripOpenMemory);
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [showTrails, setShowTrails] = useState(true);
+  const [inspecting, setInspecting] = useState(false);
+  const [inspectShowCoverage, setInspectShowCoverage] = useState(true);
+  const [holeAlpha, setHoleAlpha] = useState(0);
   const [confirmDeletePlayer, setConfirmDeletePlayer] = useState(false);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -115,6 +135,8 @@ export function EditorScreen({
   const savedRef = useRef(structuredClone(play));
   const persistPausedRef = useRef(false);
   const pendingLeaveRef = useRef<(() => void) | null>(null);
+  const fanUndoAtRef = useRef(0);
+  const holeTimerRef = useRef(0);
   const [undoCount, setUndoCount] = useState(0);
   playheadRef.current = playhead;
   playingRef.current = playing;
@@ -129,6 +151,8 @@ export function EditorScreen({
   );
   const editIndex = Math.min(lastCut, Math.max(0, Math.round(playhead)));
   const editCut = play.cuts[editIndex];
+  const balls = play.cuts.flatMap((cut) => cut.objects).filter((o) => o.kind === "ball");
+  const ballFanOn = balls.length > 0 && balls.every((o) => Boolean(o.fan));
   const siblings = useMemo(() => {
     const map = new Map(albumPlays.map((p) => [p.id, p]));
     map.set(play.id, play);
@@ -144,6 +168,34 @@ export function EditorScreen({
       setCameraPreset("bl");
     }
   }, [play.court, cameraPreset]);
+
+  useEffect(() => {
+    const next = withCoverageDefaults(play);
+    if (next === play) return;
+    onChange(next);
+    savedRef.current = structuredClone(next);
+  }, [play.id]);
+
+  useEffect(() => {
+    if (!playing) return;
+    window.clearInterval(holeTimerRef.current);
+    holeTimerRef.current = 0;
+    setHoleAlpha(0);
+  }, [playing]);
+
+  useEffect(() => {
+    if (inspecting) return;
+    window.clearInterval(holeTimerRef.current);
+    holeTimerRef.current = 0;
+    setHoleAlpha(0);
+  }, [inspecting]);
+
+  useEffect(
+    () => () => {
+      window.clearInterval(holeTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (persistPausedRef.current) return;
@@ -179,6 +231,7 @@ export function EditorScreen({
         playheadRef.current = lastCut;
         setPlayhead(lastCut);
         setPlaying(false);
+        setLooping(false);
         return;
       }
       playheadRef.current = next;
@@ -188,6 +241,12 @@ export function EditorScreen({
     raf = window.requestAnimationFrame(step);
     return () => window.cancelAnimationFrame(raf);
   }, [playing, lastCut]);
+
+  useEffect(() => {
+    if (playing) return;
+    setLooping(false);
+    loopPlayRef.current = false;
+  }, [playing]);
 
   const editing = useMemo(
     () => editCut?.objects.find((o) => o.id === editingId) ?? null,
@@ -315,12 +374,27 @@ export function EditorScreen({
     setConfirmDeletePlayer(false);
   }
 
-  function addPlayer() {
+  function addPlayer(draft: {
+    label: string;
+    color: string;
+    coverageOn: boolean;
+    coverageM: number;
+  }) {
     pushUndo();
-    const player = newPlayer(play.court);
+    const current = playRef.current;
+    const net = netYNorm(current.court);
+    const ours = draft.color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+    const y = ours ? net * 0.22 : net + (1 - net) * 0.45;
+    const occupied =
+      current.cuts[0]?.objects.filter(
+        (o) => o.kind === "player" && Math.hypot(o.x - 0.5, o.y - y) < 0.08,
+      ).length ?? 0;
+    const x = Math.min(0.86, 0.5 + occupied * 0.08);
+    const player = newPlayer(current.court, { ...draft, x, y });
     updatePlay(
-      play.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...player }] })),
+      current.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...player }] })),
     );
+    setAddPlayerOpen(false);
   }
 
   function addCone() {
@@ -339,6 +413,94 @@ export function EditorScreen({
       play.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...text }] })),
     );
     setEditingId(text.id);
+  }
+
+  function enterInspect() {
+    setInspecting(true);
+    setDrawOpen(false);
+    setTool("select");
+    setPlaying(false);
+    setToolsOpen(true);
+    const i = editCutIndex();
+    playheadRef.current = i;
+    setPlayhead(i);
+    setInspectShowCoverage(true);
+  }
+
+  function stopHoleFlash() {
+    window.clearInterval(holeTimerRef.current);
+    holeTimerRef.current = 0;
+    setHoleAlpha(0);
+  }
+
+  function flashHoles() {
+    if (playingRef.current) return;
+    window.clearInterval(holeTimerRef.current);
+    let n = 0;
+    setHoleAlpha(0.62);
+    holeTimerRef.current = window.setInterval(() => {
+      n += 1;
+      if (n >= HOLE_FLASHES * 2 || playingRef.current) {
+        stopHoleFlash();
+        return;
+      }
+      setHoleAlpha(n % 2 === 0 ? 0.62 : 0);
+    }, HOLE_FLASH_MS);
+  }
+
+  function nudgeOurCoverage(delta: number) {
+    pushUndo();
+    const current = playRef.current;
+    updatePlay(
+      current.cuts.map((cut) => ({
+        ...cut,
+        objects: cut.objects.map((o) => {
+          if (o.kind !== "player" || isOpponent(o) || !defaultCoverageOn(o)) return o;
+          return { ...o, coverageOn: true, coverageM: nudgeCoverageM(o, delta) };
+        }),
+      })),
+    );
+  }
+
+  function setAllBallFans(on: boolean) {
+    pushUndo();
+    const current = playRef.current;
+    const sample = current.cuts
+      .flatMap((c) => c.objects)
+      .find((o) => o.kind === "ball" && o.fan)?.fan;
+    updatePlay(
+      current.cuts.map((cut, idx) => ({
+        ...cut,
+        objects: cut.objects.map((o) => {
+          if (o.kind !== "ball") return o;
+          if (!on) return { ...o, fan: null };
+          const toward = ballTravelToward(current.cuts, idx, o);
+          const base = defaultFan(current.court, o, toward);
+          const src = o.fan ?? sample ?? base;
+          return { ...o, fan: { ...src, heading: base.heading } };
+        }),
+      })),
+    );
+  }
+
+  function nudgeAllBallFans(kind: "spread" | "depth", dir: -1 | 1) {
+    pushUndo();
+    const current = playRef.current;
+    updatePlay(
+      current.cuts.map((cut, idx) => ({
+        ...cut,
+        objects: cut.objects.map((o) => {
+          if (o.kind !== "ball") return o;
+          const toward = ballTravelToward(current.cuts, idx, o);
+          const base = o.fan ?? defaultFan(current.court, o, toward);
+          const fan =
+            kind === "spread"
+              ? nudgeFanSpread(base, dir * 6)
+              : nudgeFanDepth(base, dir);
+          return { ...o, fan };
+        }),
+      })),
+    );
   }
 
   function patchObject(id: string, patch: Partial<CourtObject>) {
@@ -369,18 +531,21 @@ export function EditorScreen({
     if (lastCut === 0) return;
     if (playing) {
       setPlaying(false);
-      setPlayMenuOpen(false);
+      setLooping(false);
+      loopPlayRef.current = false;
+      setSpeedOpen(false);
       return;
     }
     setSpeedOpen(false);
-    setPlayMenuOpen((v) => !v);
+    startPlay(false);
   }
 
   function startPlay(loop: boolean) {
     if (lastCut === 0) return;
     loopPlayRef.current = loop;
-    setPlayMenuOpen(false);
-    if (playhead >= lastCut - 0.001) setPlayhead(0);
+    setLooping(loop);
+    setSpeedOpen(false);
+    if (!playing && playhead >= lastCut - 0.001) setPlayhead(0);
     setPlaying(true);
   }
 
@@ -553,15 +718,29 @@ export function EditorScreen({
             {toolsOpen ? (
               <>
                 <ToolBtn
-                  active={tool === "select" && !drawOpen && !view3d}
+                  active={tool === "select" && !drawOpen && !view3d && !inspecting}
                   disabled={exportBusy}
                   onClick={() => {
                     setView3d(false);
+                    setInspecting(false);
                     setTool("select");
                     setDrawOpen(false);
                   }}
                 >
                   전술모드
+                </ToolBtn>
+                <ToolBtn
+                  active={inspecting}
+                  disabled={exportBusy}
+                  onClick={() => {
+                    if (inspecting) {
+                      setInspecting(false);
+                      return;
+                    }
+                    enterInspect();
+                  }}
+                >
+                  영역
                 </ToolBtn>
                 <ToolBtn
                   active={view3d}
@@ -577,6 +756,7 @@ export function EditorScreen({
                 <ToolBtn
                   active={drawOpen || tool === "pen" || tool === "eraser" || tool === "laser"}
                   onClick={() => {
+                    setInspecting(false);
                     if (drawOpen) {
                       setDrawOpen(false);
                       setTool("select");
@@ -597,7 +777,7 @@ export function EditorScreen({
                 </ToolBtn>
                 <ToolBtn onClick={() => setZoneOpen(true)}>구역</ToolBtn>
                 <ToolBtn onClick={() => setPresetOpen(true)}>대형</ToolBtn>
-                <ToolBtn onClick={addPlayer}>선수</ToolBtn>
+                <ToolBtn onClick={() => setAddPlayerOpen(true)}>선수</ToolBtn>
                 <ToolBtn onClick={addCone}>콘</ToolBtn>
                 <ToolBtn onClick={addText}>텍스트</ToolBtn>
               </>
@@ -661,6 +841,79 @@ export function EditorScreen({
               </div>
             </div>
           ) : null}
+          {inspecting && toolsOpen ? (
+            <>
+              <div className="flex items-start gap-1">
+                <div className="pointer-events-none invisible flex shrink-0 gap-1" aria-hidden>
+                  <span className="px-1 py-1 text-sm font-bold">{"<"}</span>
+                  <span className="rounded-md border px-1.5 py-1 text-[9px] font-medium leading-tight whitespace-nowrap opacity-0">
+                    전술모드
+                  </span>
+                </div>
+                <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg bg-white/10 px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <span className="mr-1 shrink-0 text-[10px] font-semibold text-white/70">
+                    선수 영역
+                  </span>
+                  <MarkBtn
+                    active={inspectShowCoverage}
+                    onClick={() => setInspectShowCoverage(true)}
+                  >
+                    ON
+                  </MarkBtn>
+                  <MarkBtn
+                    active={!inspectShowCoverage}
+                    onClick={() => setInspectShowCoverage(false)}
+                  >
+                    OFF
+                  </MarkBtn>
+                  <span className="mx-1 h-3.5 w-px shrink-0 bg-white/25" aria-hidden />
+                  <MarkBtn onClick={() => nudgeOurCoverage(-1)}>-1m</MarkBtn>
+                  <MarkBtn onClick={() => nudgeOurCoverage(1)}>+1m</MarkBtn>
+                  <span className="mx-1 h-3.5 w-px shrink-0 bg-white/25" aria-hidden />
+                  <MarkBtn
+                    active={holeAlpha > 0}
+                    onClick={() => {
+                      if (playing) return;
+                      flashHoles();
+                    }}
+                  >
+                    빈틈
+                  </MarkBtn>
+                </div>
+              </div>
+              <div className="flex items-start gap-1">
+                <div className="pointer-events-none invisible flex shrink-0 gap-1" aria-hidden>
+                  <span className="px-1 py-1 text-sm font-bold">{"<"}</span>
+                  <span className="rounded-md border px-1.5 py-1 text-[9px] font-medium leading-tight whitespace-nowrap opacity-0">
+                    전술모드
+                  </span>
+                </div>
+                <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg bg-white/10 px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <span className="mr-1 shrink-0 text-[10px] font-semibold text-white/70">
+                    공 영역
+                  </span>
+                  <MarkBtn active={ballFanOn} onClick={() => setAllBallFans(true)}>
+                    ON
+                  </MarkBtn>
+                  <MarkBtn active={!ballFanOn} onClick={() => setAllBallFans(false)}>
+                    OFF
+                  </MarkBtn>
+                  <span className="mx-1 h-3.5 w-px shrink-0 bg-white/25" aria-hidden />
+                  <span className="mr-0.5 shrink-0 text-[10px] font-semibold text-white/70">
+                    퍼짐
+                  </span>
+                  <MarkBtn onClick={() => nudgeAllBallFans("spread", -1)}>-</MarkBtn>
+                  <MarkBtn onClick={() => nudgeAllBallFans("spread", 1)}>+</MarkBtn>
+                  <span className="mx-1 h-3.5 w-px shrink-0 bg-white/25" aria-hidden />
+                  <span className="mr-0.5 shrink-0 text-[10px] font-semibold text-white/70">
+                    길이
+                  </span>
+                  <MarkBtn onClick={() => nudgeAllBallFans("depth", -1)}>-</MarkBtn>
+                  <MarkBtn onClick={() => nudgeAllBallFans("depth", 1)}>+</MarkBtn>
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -677,6 +930,8 @@ export function EditorScreen({
             drawColor={drawColor}
             drawKind={drawKind}
             interactive={!playing && !view3d}
+            showCoverage={inspecting && inspectShowCoverage}
+            holeAlpha={playing ? 0 : holeAlpha}
             onPointerStart={() => {
               setPlaying(false);
               const i = Math.min(lastCut, Math.max(0, Math.round(playheadRef.current)));
@@ -702,6 +957,9 @@ export function EditorScreen({
               trails={showTrails ? view.trails : []}
               strokes={view.strokes}
               showTrails={showTrails}
+              showCoverage={inspecting && inspectShowCoverage}
+              zoneMode={zoneMode}
+              holeAlpha={playing ? 0 : holeAlpha}
               cameraPreset={cameraPreset}
               cameraNonce={cameraNonce}
             />
@@ -835,33 +1093,48 @@ export function EditorScreen({
           {timelineOpen ? (
             <>
               <div className="mb-3 mt-1 flex items-center gap-1.5">
-                <div className="relative shrink-0">
-                  {playMenuOpen && !playing ? (
-                    <div className="absolute bottom-full left-0 z-20 mb-1 flex flex-col gap-0.5 rounded-lg bg-panel p-1 ring-1 ring-line">
-                      <button
-                        type="button"
-                        className="rounded-md px-2.5 py-1 text-left text-[10px] font-medium whitespace-nowrap text-white/75 hover:bg-white/10"
-                        onClick={() => startPlay(false)}
-                      >
-                        한 번 재생
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md px-2.5 py-1 text-left text-[10px] font-medium whitespace-nowrap text-white/75 hover:bg-white/10"
-                        onClick={() => startPlay(true)}
-                      >
-                        반복 재생
-                      </button>
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink"
-                    onClick={togglePlay}
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink"
+                  onClick={togglePlay}
+                >
+                  {playing ? "정지" : "재생"}
+                </button>
+                <button
+                  type="button"
+                  aria-label="반복 재생"
+                  title="반복 재생"
+                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
+                    looping
+                      ? "border-white bg-white text-ink"
+                      : "border-white/40 text-white/80"
+                  }`}
+                  onClick={() => {
+                    if (playing && looping) {
+                      setPlaying(false);
+                      setLooping(false);
+                      loopPlayRef.current = false;
+                      return;
+                    }
+                    startPlay(true);
+                  }}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                   >
-                    {playing ? "정지" : "재생"}
-                  </button>
-                </div>
+                    <polyline points="17 1 21 5 17 9" />
+                    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                    <polyline points="7 23 3 19 7 15" />
+                    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                  </svg>
+                </button>
                 <input
                   type="range"
                   className="h-1.5 min-w-0 flex-1 accent-white"
@@ -872,7 +1145,8 @@ export function EditorScreen({
                   disabled={lastCut === 0}
                   onChange={(e) => {
                     setPlaying(false);
-                    setPlayMenuOpen(false);
+                    setLooping(false);
+                    loopPlayRef.current = false;
                     setPlayhead(Number(e.target.value));
                   }}
                 />
@@ -899,7 +1173,6 @@ export function EditorScreen({
                           onClick={() => {
                             setPlaySpeed(speed);
                             setSpeedOpen(false);
-                            setPlayMenuOpen(false);
                           }}
                         >
                           {speed === 1 ? "1배" : `${speed}배`}
@@ -911,7 +1184,6 @@ export function EditorScreen({
                     type="button"
                     className="rounded-lg border border-white/40 px-2 py-1 text-[10px] text-white/75"
                     onClick={() => {
-                      setPlayMenuOpen(false);
                       setSpeedOpen((v) => !v);
                     }}
                   >
@@ -960,6 +1232,12 @@ export function EditorScreen({
 
       <EditBallModal
         object={editing?.kind === "ball" ? editing : null}
+        court={play.court}
+        travelTo={
+          editing?.kind === "ball"
+            ? ballTravelToward(play.cuts, editCutIndex(), editing)
+            : undefined
+        }
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
           const id = editingId;
@@ -974,8 +1252,17 @@ export function EditorScreen({
               ? prevH == null
               : prevH != null && Math.abs(prevH - patch.height) < 1e-6;
           const sameFlight = (ball?.flight ?? undefined) === patch.flight;
-          if (sameHeight && sameFlight) return;
-          pushUndo();
+          const sameFan =
+            JSON.stringify(ball?.fan ?? null) === JSON.stringify(patch.fan ?? null);
+          if (sameHeight && sameFlight && sameFan) return;
+          const fanOnly = sameHeight && sameFlight;
+          const now = Date.now();
+          if (!fanOnly || now - fanUndoAtRef.current > 700) {
+            pushUndo();
+            if (fanOnly) fanUndoAtRef.current = now;
+          } else {
+            fanUndoAtRef.current = now;
+          }
           updatePlay(
             current.cuts.map((c, idx) => {
               if (idx !== i) return c;
@@ -988,6 +1275,8 @@ export function EditorScreen({
                   else next.height = patch.height;
                   if (patch.flight == null) delete next.flight;
                   else next.flight = patch.flight;
+                  if (patch.fan == null) delete next.fan;
+                  else next.fan = patch.fan;
                   return next;
                 }),
               };
@@ -1012,6 +1301,11 @@ export function EditorScreen({
           patchObject(editingId, patch);
         }}
         onDelete={deletePlayer}
+      />
+      <AddPlayerModal
+        open={addPlayerOpen}
+        onClose={() => setAddPlayerOpen(false)}
+        onCreate={addPlayer}
       />
       <EditPlayerModal
         object={editing?.kind === "player" ? editing : null}
@@ -1057,6 +1351,13 @@ export function EditorScreen({
         presets={presets}
         onClose={() => setPresetOpen(false)}
         onSelect={applyFormation}
+        onCreateNew={() => {
+          setPresetOpen(false);
+          const current = playRef.current;
+          markSaved(current);
+          persistPausedRef.current = true;
+          void savePlay(current).then(() => onCreateFormation(current));
+        }}
       />
       <SavePlayModal
         open={saveOpen}

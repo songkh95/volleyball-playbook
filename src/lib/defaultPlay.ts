@@ -1,10 +1,12 @@
 import {
   BALL_YELLOW,
+  TEAM_BLUE,
   TEAM_RED,
   type Album,
   type CourtObject,
   type CourtType,
   type FormationPreset,
+  type LandingFan,
   type Play,
   type RosterSize,
 } from "../types/play";
@@ -19,13 +21,37 @@ export function netYNorm(court: CourtType): number {
   return 9 / courtMeters(court).length;
 }
 
+/** 상대 코트(네트 너머)의 중앙. y=0이 우리 엔드. */
+export function opponentCourtCenter(court: CourtType): { x: number; y: number } {
+  return { x: 0.5, y: (netYNorm(court) + 1) / 2 };
+}
+
+function defaultBallFan(court: CourtType, ball: { y: number }): LandingFan {
+  const towardUs = ball.y > netYNorm(court);
+  return {
+    heading: towardUs ? Math.PI : 0,
+    spread: (48 * Math.PI) / 180,
+    depth: court === "half" ? 4.5 : 7,
+  };
+}
+
 function player(
   x: number,
   y: number,
   label: string,
   color: string = TEAM_RED,
 ): CourtObject {
-  return { id: uid(), kind: "player", x, y, label, color };
+  const ours = color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+  return {
+    id: uid(),
+    kind: "player",
+    x,
+    y,
+    label,
+    color,
+    coverageOn: ours,
+    coverageM: ours ? 2.5 : undefined,
+  };
 }
 
 export function defaultObjects(rosterSize: RosterSize, court: CourtType): CourtObject[] {
@@ -51,13 +77,15 @@ export function defaultObjects(rosterSize: RosterSize, court: CourtType): CourtO
     );
   }
 
+  const ballAt = opponentCourtCenter(court);
   six.push({
     id: uid(),
     kind: "ball",
-    x: 0.5,
-    y: back + 0.16,
+    x: ballAt.x,
+    y: ballAt.y,
     label: "볼",
     color: BALL_YELLOW,
+    fan: defaultBallFan(court, ballAt),
   });
 
   return six;

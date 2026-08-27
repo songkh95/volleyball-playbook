@@ -25,12 +25,14 @@ export function CoverSlot({ cover, fallback, onOpen }: CoverSlotProps) {
 type CoverCardGearProps = {
   hasCover: boolean;
   onCoverChange: (blob: Blob | null) => void;
+  onRename: () => void;
   onDelete: () => void;
 };
 
 export function CoverCardGear({
   hasCover,
   onCoverChange,
+  onRename,
   onDelete,
 }: CoverCardGearProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -97,6 +99,17 @@ export function CoverCardGear({
           <button
             type="button"
             className="rounded-xl bg-accent py-3 font-semibold text-ink"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              window.setTimeout(onRename, 0);
+            }}
+          >
+            이름 수정
+          </button>
+          <button
+            type="button"
+            className="rounded-xl bg-ink py-3 text-white/85 ring-1 ring-line"
             onClick={() => galleryRef.current?.click()}
           >
             갤러리에서 선택
@@ -123,9 +136,10 @@ export function CoverCardGear({
           <button
             type="button"
             className="rounded-xl bg-red-800 py-3 text-sm font-semibold"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setMenuOpen(false);
-              onDelete();
+              window.setTimeout(onDelete, 0);
             }}
           >
             삭제

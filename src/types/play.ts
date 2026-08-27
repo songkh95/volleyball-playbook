@@ -3,6 +3,13 @@ export type RosterSize = 6 | 9;
 export type ObjKind = "player" | "ball" | "cone" | "text";
 export type BallFlight = "fast" | "slow";
 
+/** 공에서 퍼지는 낙하 부채꼴. heading 0은 상대 엔드(+y). */
+export type LandingFan = {
+  heading: number;
+  spread: number;
+  depth: number;
+};
+
 export type CourtObject = {
   id: string;
   kind: ObjKind;
@@ -14,6 +21,12 @@ export type CourtObject = {
   height?: number;
   /** 공만 사용. 다음 컷으로 가는 이동. 없으면 보통. */
   flight?: BallFlight;
+  /** 선수만 사용. 이 컷의 책임 범위. */
+  coverageOn?: boolean;
+  /** 선수만 사용. 책임 범위 반경(m). 없으면 2.5. */
+  coverageM?: number;
+  /** 공만 사용. 다음 접촉의 낙하 부채. */
+  fan?: LandingFan | null;
   /** 텍스트만 사용. 기본 18. */
   fontSize?: number;
   bold?: boolean;

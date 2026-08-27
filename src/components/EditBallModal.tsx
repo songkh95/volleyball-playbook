@@ -9,26 +9,56 @@ import {
   heightForBand,
   type BallHeightBand,
 } from "../lib/ballFlight";
-import type { BallFlight, CourtObject } from "../types/play";
+import {
+  defaultFan,
+  FAN_DEPTH_MAX,
+  FAN_DEPTH_MIN,
+  FAN_SPREAD_MAX,
+  FAN_SPREAD_MIN,
+  fanHeadingFromTravel,
+} from "../lib/inspect";
+import type { BallFlight, CourtObject, CourtType, LandingFan } from "../types/play";
 import { Modal } from "./Modal";
 
 type Props = {
   object: CourtObject | null;
+  court: CourtType;
+  travelTo?: { x: number; y: number };
   onClose: () => void;
-  onSave: (patch: { height: number | undefined; flight: BallFlight | undefined }) => void;
+  onSave: (patch: {
+    height: number | undefined;
+    flight: BallFlight | undefined;
+    fan: LandingFan | null;
+  }) => void;
 };
 
 const HEIGHT_PRESETS: Exclude<BallHeightBand, "auto">[] = ["lower", "upper", "air"];
 const FLIGHT_PRESETS: (BallFlight | undefined)[] = [undefined, "fast", "slow"];
 
-export function EditBallModal({ object, onClose, onSave }: Props) {
+function deg(rad: number) {
+  return Math.round((((rad * 180) / Math.PI) % 360) + 360) % 360;
+}
+
+function headingHint(degrees: number) {
+  if (degrees <= 20 || degrees >= 340) return "상대 쪽";
+  if (degrees >= 70 && degrees <= 110) return "오른쪽";
+  if (degrees >= 160 && degrees <= 200) return "우리 쪽";
+  if (degrees >= 250 && degrees <= 290) return "왼쪽";
+  return "";
+}
+
+export function EditBallModal({ object, court, travelTo, onClose, onSave }: Props) {
   const [mode, setMode] = useState<BallHeightBand>("auto");
   const [height, setHeight] = useState(heightForBand("upper"));
   const [flight, setFlight] = useState<BallFlight | undefined>(undefined);
+  const [fanOn, setFanOn] = useState(false);
+  const [fan, setFan] = useState<LandingFan>(() => defaultFan(court));
 
   useEffect(() => {
     if (!object || object.kind !== "ball") return;
     setFlight(object.flight);
+    setFanOn(!!object.fan);
+    setFan(object.fan ?? defaultFan(court, object, travelTo));
     if (object.height == null) {
       setMode("auto");
       setHeight(heightForBand("upper"));
@@ -36,31 +66,74 @@ export function EditBallModal({ object, onClose, onSave }: Props) {
     }
     setMode(bandFromHeight(object.height));
     setHeight(object.height);
-  }, [object?.id, object?.kind, object?.height, object?.flight]);
+  }, [object?.id, object?.kind, object?.height, object?.flight, object?.fan, court, travelTo]);
 
   const contact = useMemo(() => contactZoneFromHeight(height), [height]);
   const band = mode === "auto" ? "auto" : bandFromHeight(height);
+  const travelHeading =
+    object?.kind === "ball" && travelTo
+      ? fanHeadingFromTravel(object, travelTo)
+      : null;
+  const headingDeg = deg(travelHeading ?? fan.heading);
+  const spreadDeg = Math.round((fan.spread * 180) / Math.PI);
 
   if (!object || object.kind !== "ball") return null;
+  const ball = object;
 
-  function commit(nextHeight: number | undefined, nextFlight: BallFlight | undefined) {
-    onSave({ height: nextHeight, flight: nextFlight });
+  function currentFan(nextOn = fanOn, nextFan = fan): LandingFan | null {
+    return nextOn ? nextFan : null;
+  }
+
+  function commit(
+    nextHeight: number | undefined,
+    nextFlight: BallFlight | undefined,
+    nextFan: LandingFan | null,
+  ) {
+    onSave({ height: nextHeight, flight: nextFlight, fan: nextFan });
+  }
+
+  function heightValue() {
+    return mode === "auto" ? undefined : height;
   }
 
   function applyBand(next: BallHeightBand) {
     setMode(next);
     if (next === "auto") {
-      commit(undefined, flight);
+      commit(undefined, flight, currentFan());
       return;
     }
     const nextHeight = heightForBand(next);
     setHeight(nextHeight);
-    commit(nextHeight, flight);
+    commit(nextHeight, flight, currentFan());
   }
 
   function applyFlight(next: BallFlight | undefined) {
     setFlight(next);
-    commit(mode === "auto" ? undefined : height, next);
+    commit(heightValue(), next, currentFan());
+  }
+
+  function applyFanOn(on: boolean) {
+    if (!on) {
+      setFanOn(false);
+      commit(heightValue(), flight, null);
+      return;
+    }
+    const base = defaultFan(court, ball, travelTo);
+    const next = {
+      heading: base.heading,
+      spread: fanOn ? fan.spread : base.spread,
+      depth: fanOn ? fan.depth : base.depth,
+    };
+    setFanOn(true);
+    setFan(next);
+    commit(heightValue(), flight, next);
+  }
+
+  function patchFan(partial: Partial<LandingFan>) {
+    const next = { ...fan, ...partial };
+    setFan(next);
+    setFanOn(true);
+    commit(heightValue(), flight, next);
   }
 
   return (
@@ -119,7 +192,7 @@ export function EditBallModal({ object, onClose, onSave }: Props) {
             const next = Number((e.target as HTMLInputElement).value);
             setHeight(next);
             setMode(bandFromHeight(next));
-            commit(next, flight);
+            commit(next, flight, currentFan());
           }}
         />
         <div className="mt-1 flex justify-between text-[10px] text-white/40">
@@ -155,11 +228,83 @@ export function EditBallModal({ object, onClose, onSave }: Props) {
             : "지금처럼 컷 사이에 보통 속도로 이동합니다."}
       </p>
 
+      <p className="mb-1.5 text-xs font-semibold text-white/50">낙하 부채</p>
+      <p className="mb-2 text-[11px] leading-relaxed text-white/40">
+        다음 컷으로 공이 가는 방향을 부채꼴이 따라갑니다. 선수 원과 겹치면 색이
+        합쳐집니다.
+      </p>
+      <div className="mb-3 grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          className={`rounded-xl py-2.5 text-xs font-semibold ${
+            !fanOn ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+          }`}
+          onClick={() => applyFanOn(false)}
+        >
+          없음
+        </button>
+        <button
+          type="button"
+          className={`rounded-xl py-2.5 text-xs font-semibold ${
+            fanOn ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+          }`}
+          onClick={() => applyFanOn(true)}
+        >
+          그리기
+        </button>
+      </div>
+      <div className={fanOn ? "mb-4" : "pointer-events-none mb-4 opacity-40"}>
+        <div className="mb-2 flex items-end justify-between">
+          <label className="text-sm text-white/70">방향</label>
+          <p className="text-sm font-semibold tabular-nums">
+            {headingDeg}°{headingHint(headingDeg) ? ` · ${headingHint(headingDeg)}` : ""}
+          </p>
+        </div>
+        <input
+          type="range"
+          className="mb-3 h-2 w-full accent-white"
+          min={0}
+          max={360}
+          step={1}
+          value={headingDeg}
+          disabled={!fanOn || travelHeading != null}
+          onChange={(e) => patchFan({ heading: (Number(e.target.value) * Math.PI) / 180 })}
+        />
+        <div className="mb-2 flex items-end justify-between">
+          <label className="text-sm text-white/70">퍼짐</label>
+          <p className="text-sm font-semibold tabular-nums">{spreadDeg}°</p>
+        </div>
+        <input
+          type="range"
+          className="mb-3 h-2 w-full accent-white"
+          min={Math.round((FAN_SPREAD_MIN * 180) / Math.PI)}
+          max={Math.round((FAN_SPREAD_MAX * 180) / Math.PI)}
+          step={1}
+          value={spreadDeg}
+          disabled={!fanOn}
+          onChange={(e) => patchFan({ spread: (Number(e.target.value) * Math.PI) / 180 })}
+        />
+        <div className="mb-2 flex items-end justify-between">
+          <label className="text-sm text-white/70">거리</label>
+          <p className="text-sm font-semibold tabular-nums">{fan.depth.toFixed(1)}m</p>
+        </div>
+        <input
+          type="range"
+          className="h-2 w-full accent-white"
+          min={FAN_DEPTH_MIN}
+          max={FAN_DEPTH_MAX}
+          step={0.5}
+          value={fan.depth}
+          disabled={!fanOn}
+          onChange={(e) => patchFan({ depth: Number(e.target.value) })}
+        />
+      </div>
+
       <button
         type="button"
         className="w-full rounded-xl bg-accent py-3 font-semibold text-ink"
         onClick={() => {
-          commit(mode === "auto" ? undefined : height, flight);
+          commit(heightValue(), flight, currentFan());
           onClose();
         }}
       >

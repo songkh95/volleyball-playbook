@@ -1,5 +1,6 @@
 import type { CourtObject, Cut, ObjKind } from "../types/play";
 import { interpolateBallPosition } from "./ballFlight";
+import { ballsWithTravelFan, fanAlongTravel } from "./inspect";
 
 export type Trail = {
   kind: ObjKind;
@@ -41,6 +42,11 @@ export function interpolateObjects(
         y: pos?.y ?? lerp(o.y, n.y, t),
         height,
         flight: n.flight ?? o.flight,
+        fan: (() => {
+          const fanBase = n.fan ?? o.fan;
+          if (!fanBase) return undefined;
+          return fanAlongTravel(fanBase, o, n);
+        })(),
       };
     }
     const height =
@@ -102,7 +108,7 @@ export function viewAtPlayhead(cuts: Cut[], playhead: number) {
   if (t < 0.0005) {
     const prev = i > 0 ? cuts[i - 1] : null;
     return {
-      objects: from.objects,
+      objects: ballsWithTravelFan(from.objects, to.objects, prev?.objects),
       trails: prev ? trailsBetween(prev.objects, from.objects) : [],
       strokes: from.strokes,
       activeIndex,
