@@ -16,9 +16,6 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import {
   ballPoseAtPlayhead,
-  bandFromHeight,
-  bandLabel,
-  flightLabel,
   type BallPose,
 } from "../lib/ballFlight";
 import {
@@ -868,11 +865,6 @@ function Ball({
 }) {
   const world = courtToWorld(pose.x, pose.y, court);
   const height = Math.max(BALL_RADIUS, pose.height);
-  const bits = pose.flight ? [flightLabel(pose.flight)] : [];
-  bits.push(`${bandLabel(bandFromHeight(height))} ${height.toFixed(2)}m`);
-  const tag = bits.join(" · ");
-  const texture = useMemo(() => makeLabelTexture(tag, "#ffd54f", true), [tag]);
-  useEffect(() => () => texture.dispose(), [texture]);
   return (
     <group position={[world.x, 0, world.z]}>
       <mesh position={[0, Math.max(0.04, height / 2), 0]}>
@@ -891,9 +883,6 @@ function Ball({
           <VolleyballModel />
         </Suspense>
       </group>
-      <sprite position={[0, height + BALL_RADIUS + 0.28, 0]} scale={[pose.flight ? 1.55 : 1.15, 0.4, 1]}>
-        <spriteMaterial map={texture} transparent depthWrite={false} />
-      </sprite>
     </group>
   );
 }

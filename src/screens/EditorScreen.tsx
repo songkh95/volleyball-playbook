@@ -4,7 +4,7 @@ import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EditBallModal } from "../components/EditBallModal";
 import { EditConeModal } from "../components/EditConeModal";
-import { AddPlayerModal } from "../components/AddPlayerModal";
+import { AddPlayerModal, type NewPlayerDraft } from "../components/AddPlayerModal";
 import { EditPlayerModal } from "../components/EditPlayerModal";
 import { EditTextModal } from "../components/EditTextModal";
 import { PresetModal } from "../components/PresetModal";
@@ -374,25 +374,29 @@ export function EditorScreen({
     setConfirmDeletePlayer(false);
   }
 
-  function addPlayer(draft: {
-    label: string;
-    color: string;
-    coverageOn: boolean;
-    coverageM: number;
-  }) {
+  function addPlayers(drafts: NewPlayerDraft[]) {
+    if (drafts.length === 0) return;
     pushUndo();
     const current = playRef.current;
     const net = netYNorm(current.court);
-    const ours = draft.color.toLowerCase() !== TEAM_BLUE.toLowerCase();
-    const y = ours ? net * 0.22 : net + (1 - net) * 0.45;
-    const occupied =
-      current.cuts[0]?.objects.filter(
-        (o) => o.kind === "player" && Math.hypot(o.x - 0.5, o.y - y) < 0.08,
-      ).length ?? 0;
-    const x = Math.min(0.86, 0.5 + occupied * 0.08);
-    const player = newPlayer(current.court, { ...draft, x, y });
+    let placed = current.cuts[0]?.objects ?? [];
+    const created = drafts.map((draft) => {
+      const ours = draft.color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+      const y = ours ? net * 0.22 : net + (1 - net) * 0.45;
+      const occupied =
+        placed.filter(
+          (o) => o.kind === "player" && Math.hypot(o.x - 0.5, o.y - y) < 0.08,
+        ).length;
+      const x = Math.min(0.86, 0.5 + occupied * 0.08);
+      const player = newPlayer(current.court, { ...draft, x, y });
+      placed = [...placed, player];
+      return player;
+    });
     updatePlay(
-      current.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...player }] })),
+      current.cuts.map((c) => ({
+        ...c,
+        objects: [...c.objects, ...created.map((p) => ({ ...p }))],
+      })),
     );
     setAddPlayerOpen(false);
   }
@@ -1305,7 +1309,7 @@ export function EditorScreen({
       <AddPlayerModal
         open={addPlayerOpen}
         onClose={() => setAddPlayerOpen(false)}
-        onCreate={addPlayer}
+        onCreate={addPlayers}
       />
       <EditPlayerModal
         object={editing?.kind === "player" ? editing : null}

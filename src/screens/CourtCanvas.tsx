@@ -1,5 +1,4 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { bandFromHeight, flightShort } from "../lib/ballFlight";
 import { getBallSprite, loadBallSprite } from "../lib/ballSprite";
 import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
 import { courtMeters, netYNorm } from "../lib/defaultPlay";
@@ -1117,32 +1116,6 @@ function drawObject(
     }
     lastBallPos.set(obj.id, { x: obj.x, y: obj.y });
     drawBall(ctx, p.x, p.y, r, spin, obj.color);
-    const tags: string[] = [];
-    if (obj.height != null) {
-      tags.push(
-        bandFromHeight(obj.height) === "lower"
-          ? "하"
-          : bandFromHeight(obj.height) === "upper"
-            ? "상"
-            : "공",
-      );
-    }
-    const fly = flightShort(obj.flight);
-    if (fly) tags.push(fly);
-    if (obj.fan) tags.push("부채");
-    if (tags.length > 0) {
-      const tag = tags.join("·");
-      const chipH = Math.max(12, r * 0.72);
-      ctx.font = `700 ${Math.max(9, chipH * 0.72)}px system-ui, sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const w = Math.max(chipH * 1.35, ctx.measureText(tag).width + chipH * 0.7);
-      const y = p.y - r - chipH * 0.85;
-      ctx.fillStyle = "rgba(12,12,20,0.82)";
-      ctx.fillRect(p.x - w / 2, y - chipH / 2, w, chipH);
-      ctx.fillStyle = "#ffd54f";
-      ctx.fillText(tag, p.x, y + 0.5);
-    }
     return;
   }
 
