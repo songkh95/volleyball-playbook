@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { isLightColor, OUR_TEAM_COLORS } from "../lib/colors";
-import { COVERAGE_DEFAULT, COVERAGE_MAX, COVERAGE_MIN, defaultCoverageOn } from "../lib/inspect";
-import { TEAM_BLUE, TEAM_RED, type CourtObject } from "../types/play";
+import { LABEL_ON_LIGHT } from "../design/tokens";
+import { isLightColor, PLAYER_COLORS } from "../lib/colors";
+import { COVERAGE_DEFAULT, COVERAGE_MAX, COVERAGE_MIN, defaultCoverageOn, playerTeam } from "../lib/inspect";
+import { TEAM_BLUE, TEAM_RED, type CourtObject, type PlayerTeam } from "../types/play";
 import { Modal } from "./Modal";
-
-type Team = "ours" | "opp";
 
 type Props = {
   object: CourtObject | null;
@@ -12,6 +11,7 @@ type Props = {
   onSave: (patch: {
     label: string;
     color: string;
+    team: PlayerTeam;
     coverageOn: boolean;
     coverageM: number;
   }) => void;
@@ -19,7 +19,7 @@ type Props = {
 };
 
 export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
-  const [team, setTeam] = useState<Team>("ours");
+  const [team, setTeam] = useState<PlayerTeam>("ours");
   const [label, setLabel] = useState("");
   const [color, setColor] = useState(TEAM_RED);
   const [coverageOn, setCoverageOn] = useState(false);
@@ -27,8 +27,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
 
   useEffect(() => {
     if (!object) return;
-    const opp = object.color.toLowerCase() === TEAM_BLUE.toLowerCase();
-    setTeam(opp ? "opp" : "ours");
+    setTeam(playerTeam(object));
     setLabel(object.label);
     setColor(object.color);
     setCoverageOn(defaultCoverageOn(object));
@@ -37,16 +36,11 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
 
   if (!object || object.kind !== "player") return null;
 
-  function pickOurs(next: string) {
-    setTeam("ours");
-    setColor(next);
-    setCoverageOn(true);
-  }
-
-  function pickOpponent() {
-    setTeam("opp");
-    setColor(TEAM_BLUE);
-    setCoverageOn(false);
+  function pickTeam(next: PlayerTeam) {
+    setTeam(next);
+    setCoverageOn(next === "ours");
+    if (next === "ours" && color === TEAM_BLUE) setColor(TEAM_RED);
+    if (next === "opp" && color === TEAM_RED) setColor(TEAM_BLUE);
   }
 
   return (
@@ -56,18 +50,18 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
         <button
           type="button"
           className={`rounded-xl py-2.5 text-sm font-semibold ${
-            team === "ours" ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            team === "ours" ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
-          onClick={() => pickOurs(color === TEAM_BLUE ? TEAM_RED : color)}
+          onClick={() => pickTeam("ours")}
         >
           우리팀
         </button>
         <button
           type="button"
           className={`rounded-xl py-2.5 text-sm font-semibold ${
-            team === "opp" ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            team === "opp" ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
-          onClick={pickOpponent}
+          onClick={() => pickTeam("opp")}
         >
           상대팀
         </button>
@@ -82,43 +76,26 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
         placeholder="S, OH, 이름…"
       />
 
-      {team === "ours" ? (
-        <>
-          <p className="mb-2 text-sm text-white/70">우리팀 색상</p>
-          <div className="mb-5 grid grid-cols-5 gap-1.5">
-            {OUR_TEAM_COLORS.map((c) => (
-              <button
-                key={c.n}
-                type="button"
-                title={`${c.n}. ${c.label}`}
-                onClick={() => pickOurs(c.value)}
-                className={`flex aspect-square items-center justify-center rounded-xl text-sm font-bold ring-2 ${
-                  color === c.value ? "ring-white" : "ring-transparent"
-                }`}
-                style={{
-                  background: c.value,
-                  color: isLightColor(c.value) ? "#1a1a2e" : "#fff",
-                }}
-              >
-                {c.n}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <>
-          <p className="mb-2 text-sm text-white/70">상대팀 색상</p>
-          <div className="mb-5">
-            <button
-              type="button"
-              className="flex h-11 w-full items-center justify-center rounded-xl text-sm font-semibold text-white ring-2 ring-white"
-              style={{ background: TEAM_BLUE }}
-            >
-              블루
-            </button>
-          </div>
-        </>
-      )}
+      <p className="mb-2 text-sm text-white/70">색상</p>
+      <div className="mb-5 grid grid-cols-5 gap-1.5">
+        {PLAYER_COLORS.map((c) => (
+          <button
+            key={c.n}
+            type="button"
+            title={`${c.n}. ${c.label}`}
+            onClick={() => setColor(c.value)}
+            className={`flex aspect-square items-center justify-center rounded-xl text-sm font-bold ring-2 ${
+              color === c.value ? "ring-white" : "ring-transparent"
+            }`}
+            style={{
+              background: c.value,
+              color: isLightColor(c.value) ? LABEL_ON_LIGHT : "#fff",
+            }}
+          >
+            {c.n}
+          </button>
+        ))}
+      </div>
 
       <p className="mb-1.5 text-xs font-semibold text-white/50">책임 범위</p>
       <p className="mb-2 text-[11px] leading-relaxed text-white/40">
@@ -128,7 +105,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
         <button
           type="button"
           className={`rounded-xl py-2.5 text-xs font-semibold ${
-            !coverageOn ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            !coverageOn ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
           onClick={() => setCoverageOn(false)}
         >
@@ -137,7 +114,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
         <button
           type="button"
           className={`rounded-xl py-2.5 text-xs font-semibold ${
-            coverageOn ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            coverageOn ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
           onClick={() => setCoverageOn(true)}
         >
@@ -186,7 +163,8 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
           onClick={() =>
             onSave({
               label: label.trim() || object.label,
-              color: team === "opp" ? TEAM_BLUE : color,
+              color,
+              team,
               coverageOn,
               coverageM,
             })

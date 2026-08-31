@@ -46,7 +46,7 @@ export function AlbumScreen({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         {plays.length === 0 ? (
-          <div className="mb-4 rounded-2xl bg-panel p-4 text-sm text-white/60 ring-1 ring-line">
+          <div className="mb-4 rounded-2xl glass p-4 text-sm text-white/60">
             이 전술 프로젝트에 전술이 없습니다. 새 전술 보드를 만들어 주세요.
           </div>
         ) : null}
@@ -56,7 +56,7 @@ export function AlbumScreen({
             .map((play) => (
               <article
                 key={play.id}
-                className="relative flex aspect-[3/4] flex-col rounded-2xl bg-panel ring-1 ring-line"
+                className="relative flex aspect-[3/4] flex-col rounded-2xl glass"
               >
                 <div className="flex min-h-0 flex-1 flex-col p-3">
                   <CoverSlot
@@ -76,7 +76,7 @@ export function AlbumScreen({
                   >
                     <h2 className="truncate text-sm font-semibold">{play.title}</h2>
                     <p className="text-xs text-white/50">
-                      {play.court === "half" ? "하프" : "풀"} · {play.rosterSize}인 · 컷{" "}
+                      {play.court === "half" ? "하프" : "풀"} · {play.rosterSize}인 · 장면{" "}
                       {play.cuts.length}
                     </p>
                   </button>

@@ -13,6 +13,7 @@ import {
   type BackupBundle,
 } from "./lib/backup";
 import { createAlbum, createPlay, createPreset } from "./lib/defaultPlay";
+import { isBuiltinPreset } from "./lib/formations";
 import { readTextFromUri } from "./lib/readUri";
 import {
   addImported,
@@ -41,6 +42,7 @@ import { AlbumScreen } from "./screens/AlbumScreen";
 import { EditorScreen } from "./screens/EditorScreen";
 import { GalleryScreen } from "./screens/GalleryScreen";
 import { HomeScreen } from "./screens/HomeScreen";
+import { MatchScreen } from "./screens/MatchScreen";
 import { PresetEditorScreen } from "./screens/PresetEditorScreen";
 import type {
   Album,
@@ -51,7 +53,7 @@ import type {
   RosterSize,
 } from "./types/play";
 
-type Tab = "home" | "gallery";
+type Tab = "home" | "gallery" | "match";
 type Route =
   | { name: "main"; tab: Tab }
   | { name: "album"; albumId: string; tab: Tab }
@@ -230,7 +232,7 @@ export default function App() {
         if (route.name === "album" && route.albumId === target.album.id) {
           setRoute({ name: "main", tab: route.tab });
         }
-      } else {
+      } else if (!isBuiltinPreset(target.preset)) {
         await deletePreset(target.preset.id);
       }
     } catch (err) {
@@ -374,15 +376,15 @@ export default function App() {
             alt=""
             className="h-full w-full object-cover object-center"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-ink/70 via-ink/45 to-ink/75" />
+          <div className="absolute inset-0 bg-gradient-to-b from-ink/80 via-ink/55 to-ink/88" />
         </div>
       ) : null}
       <div
-        className={`relative z-10 mx-auto flex h-full w-full max-w-lg flex-col ${
-          showSceneBg ? "bg-transparent" : "bg-ink"
-        }`}
+        className={`relative z-10 mx-auto flex h-full w-full flex-col ${
+          route.name === "main" && route.tab === "match" ? "max-w-3xl" : "max-w-lg"
+        } ${showSceneBg ? "bg-transparent" : "bg-ink"}`}
       >
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 h-full flex-1 flex-col">
         {route.name === "album" ? (
           album && album.id === route.albumId ? (
             <AlbumScreen
@@ -441,6 +443,8 @@ export default function App() {
             }}
             onRestore={() => fileRef.current?.click()}
           />
+        ) : route.name === "main" && route.tab === "match" ? (
+          <MatchScreen />
         ) : (
           <GalleryScreen
             albums={albums}
@@ -466,7 +470,7 @@ export default function App() {
       </div>
 
       {showNav ? (
-        <nav className="grid grid-cols-2 gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+        <nav className="grid grid-cols-3 gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
           <TabButton
             active={activeTab === "home"}
             onClick={() => setRoute({ name: "main", tab: "home" })}
@@ -481,6 +485,12 @@ export default function App() {
             }}
           >
             갤러리
+          </TabButton>
+          <TabButton
+            active={activeTab === "match"}
+            onClick={() => setRoute({ name: "main", tab: "match" })}
+          >
+            기록
           </TabButton>
         </nav>
       ) : null}
@@ -587,7 +597,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={`rounded-xl py-3 text-sm font-semibold ${
-        active ? "bg-panel text-white" : "text-white/45"
+        active ? "bg-white/10 text-white" : "text-white/45"
       }`}
     >
       {children}

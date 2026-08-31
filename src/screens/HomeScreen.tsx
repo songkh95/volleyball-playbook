@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CoverCardGear, CoverSlot } from "../components/CoverSlot";
 import { Modal } from "../components/Modal";
+import { isBuiltinPreset } from "../lib/formations";
 import type { Album, FormationPreset, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -56,7 +57,7 @@ export function HomeScreen({
           <h1 className="text-2xl font-bold">전술 보드</h1>
           <button
             type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/80 ring-1 ring-line"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/80 glass"
             aria-label="설정"
             onClick={() => setSettingsOpen(true)}
           >
@@ -94,7 +95,7 @@ export function HomeScreen({
             <button
               type="button"
               onClick={onNewAlbum}
-              className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/25 bg-black/25 text-white/80"
+              className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/15 bg-black/30 text-white/80"
             >
               <span className="text-4xl font-light leading-none">+</span>
               <span className="mt-2 text-sm">새 전술 프로젝트</span>
@@ -104,7 +105,7 @@ export function HomeScreen({
               return (
                 <article
                   key={album.id}
-                  className="relative flex aspect-[3/4] flex-col rounded-2xl bg-panel ring-1 ring-line"
+                  className="relative flex aspect-[3/4] flex-col rounded-2xl glass"
                 >
                   <div className="flex min-h-0 flex-1 flex-col p-3">
                     <CoverSlot
@@ -166,7 +167,7 @@ export function HomeScreen({
                 <button
                   type="button"
                   onClick={onNewPreset}
-                  className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/25 bg-black/25 text-white/80"
+                  className="flex aspect-[3/4] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/15 bg-black/30 text-white/80"
                 >
                   <span className="text-4xl font-light leading-none">+</span>
                   <span className="mt-2 text-sm">새 대형</span>
@@ -174,7 +175,7 @@ export function HomeScreen({
                 {presets.map((preset) => (
                   <article
                     key={preset.id}
-                    className="relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl bg-panel ring-1 ring-line"
+                    className="relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl glass"
                   >
                     <button
                       type="button"
@@ -189,13 +190,15 @@ export function HomeScreen({
                         {preset.court === "half" ? "하프" : "풀"} · {preset.rosterSize}인
                       </p>
                     </button>
-                    <button
-                      type="button"
-                      className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"
-                      onClick={() => onDeletePreset(preset)}
-                    >
-                      삭제
-                    </button>
+                    {isBuiltinPreset(preset) ? null : (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2 rounded-full bg-ink/80 px-2 py-1 text-[11px] text-white/80"
+                        onClick={() => onDeletePreset(preset)}
+                      >
+                        삭제
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>

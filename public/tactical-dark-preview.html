@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Pro Tactical Dark 시안</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css"
+    />
+    <style>
+      :root {
+        --bg: #07080d;
+        --bg-2: #0c1018;
+        --glass: rgba(18, 22, 32, 0.55);
+        --glass-2: rgba(255, 255, 255, 0.06);
+        --stroke: rgba(255, 255, 255, 0.1);
+        --stroke-strong: rgba(255, 255, 255, 0.18);
+        --text: #e8eef6;
+        --muted: #8b95a8;
+        --dim: #5a6270;
+        --accent: #5ee0d0;
+        --court: #c45a1e;
+        --court-deep: #9a3f12;
+        --line: rgba(255, 248, 240, 0.88);
+        --ours: #ff3b3b;
+        --opp: #3b8bff;
+        --trail: #ccff3d;
+        --ball: #ffd54f;
+        --danger: #ff4d4d;
+      }
+
+      * {
+        box-sizing: border-box;
+        scrollbar-width: none;
+      }
+      *::-webkit-scrollbar {
+        display: none;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(1200px 600px at 70% -10%, rgba(94, 224, 208, 0.08), transparent 50%),
+          radial-gradient(900px 500px at 0% 100%, rgba(196, 90, 30, 0.12), transparent 45%),
+          var(--bg);
+        color: var(--text);
+        font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+      }
+
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 20px 64px;
+      }
+      .kicker {
+        color: var(--accent);
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        font-weight: 700;
+      }
+      h1 {
+        margin: 8px 0 6px;
+        font-size: 28px;
+        font-weight: 720;
+      }
+      .lead {
+        margin: 0 0 22px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+        max-width: 52rem;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 22px;
+      }
+      .tab {
+        border: 1px solid var(--stroke);
+        background: var(--glass-2);
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 13px;
+      }
+      .tab.on {
+        color: #07221e;
+        background: var(--accent);
+        border-color: transparent;
+        font-weight: 700;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 390px) 1fr;
+        gap: 28px;
+        align-items: start;
+      }
+      @media (max-width: 860px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .phone {
+          margin: 0 auto;
+        }
+      }
+
+      .phone {
+        width: min(100%, 390px);
+        height: 760px;
+        border-radius: 28px;
+        overflow: hidden;
+        position: relative;
+        border: 1px solid var(--stroke-strong);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.04),
+          0 30px 80px rgba(0, 0, 0, 0.55);
+        background: var(--bg-2);
+      }
+      .screen {
+        position: absolute;
+        inset: 0;
+        display: none;
+      }
+      .screen.on {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .glass {
+        background: var(--glass);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border: 1px solid var(--stroke);
+      }
+      .chip {
+        border: 1px solid var(--stroke-strong);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 5px 8px;
+        font-size: 10px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+      .chip.on {
+        background: rgba(94, 224, 208, 0.16);
+        border-color: rgba(94, 224, 208, 0.55);
+        color: var(--accent);
+      }
+      .icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        border: 1px solid var(--stroke-strong);
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .icon:disabled,
+      .icon.dim {
+        opacity: 0.32;
+      }
+      .icon svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .top {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 14px 12px 8px;
+        z-index: 4;
+      }
+      .top-left {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .ghost {
+        color: var(--text);
+        font-size: 13px;
+        opacity: 0.88;
+        background: none;
+        border: 0;
+        padding: 0;
+      }
+      .title {
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .save-col {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 52px;
+      }
+      .save {
+        background: var(--accent);
+        color: #06221d;
+        border: 0;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 800;
+        padding: 8px 0;
+      }
+      .burger {
+        height: 30px;
+        border-radius: 12px;
+        border: 1px solid var(--stroke-strong);
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+      }
+      .burger.on {
+        background: var(--accent);
+        color: #06221d;
+        border-color: transparent;
+      }
+      .tools {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        overflow: auto;
+      }
+
+      .stage {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        margin: 0 10px;
+      }
+      .court {
+        position: absolute;
+        inset: 8px 28px 12px;
+        border-radius: 4px;
+        background:
+          linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 18%),
+          linear-gradient(#b14d16, var(--court-deep));
+        box-shadow:
+          0 0 0 2px rgba(255, 248, 240, 0.8),
+          inset 0 0 40px rgba(0, 0, 0, 0.28);
+      }
+      .net {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 26%;
+        height: 2px;
+        background: rgba(230, 236, 244, 0.9);
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+      }
+      .attack {
+        position: absolute;
+        left: 6%;
+        right: 6%;
+        top: 52%;
+        border-top: 1.5px dashed rgba(255, 248, 240, 0.55);
+      }
+      .marker {
+        position: absolute;
+        width: 28px;
+        height: 28px;
+        margin: -14px 0 0 -14px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 9px;
+        font-weight: 800;
+        color: #fff;
+        box-shadow:
+          0 0 0 1.5px rgba(255, 255, 255, 0.25),
+          0 0 14px color-mix(in srgb, var(--c) 70%, transparent);
+      }
+      .ours {
+        --c: var(--ours);
+        background: radial-gradient(circle at 35% 30%, #ff6b6b, var(--ours));
+      }
+      .opp {
+        --c: var(--opp);
+        background: radial-gradient(circle at 35% 30%, #7ab0ff, var(--opp));
+      }
+      .ball {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        margin: -8px 0 0 -8px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #fff6c4, var(--ball));
+        box-shadow: 0 0 16px rgba(255, 213, 79, 0.55);
+      }
+      .fan {
+        position: absolute;
+        width: 120px;
+        height: 90px;
+        margin-left: -60px;
+        background: conic-gradient(from 200deg at 50% 0%, transparent 0 38%, rgba(255, 213, 79, 0.22) 38% 62%, transparent 62%);
+        filter: blur(0.2px);
+      }
+      .trail {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .cover {
+        position: absolute;
+        width: 86px;
+        height: 70px;
+        margin: -35px 0 0 -43px;
+        border-radius: 50%;
+        background: rgba(255, 59, 59, 0.12);
+        border: 1px solid rgba(255, 59, 59, 0.28);
+      }
+
+      .menu {
+        position: absolute;
+        right: 10px;
+        top: 96px;
+        width: 108px;
+        padding: 8px;
+        border-radius: 16px;
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+        z-index: 5;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+      }
+      .menu.on {
+        display: flex;
+      }
+      .menu button {
+        width: 100%;
+        text-align: center;
+      }
+
+      .sub {
+        display: none;
+        margin: 0 12px 8px;
+        padding: 6px 8px;
+        border-radius: 12px;
+        gap: 6px;
+        align-items: center;
+        overflow: auto;
+        z-index: 3;
+      }
+      .sub.on {
+        display: flex;
+      }
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+      }
+
+      .bottom {
+        margin: 8px 10px 12px;
+        padding: 8px 10px 10px;
+        border-radius: 16px;
+        z-index: 3;
+      }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 10px;
+        margin-bottom: 8px;
+      }
+      .playrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .play {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 0;
+        background: var(--accent);
+        color: #06221d;
+        font-weight: 800;
+      }
+      .slider {
+        flex: 1;
+        height: 4px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.12);
+        position: relative;
+      }
+      .slider::after {
+        content: "";
+        position: absolute;
+        left: 18%;
+        top: 50%;
+        width: 12px;
+        height: 12px;
+        margin-top: -6px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 0 10px rgba(94, 224, 208, 0.5);
+      }
+
+      .home-bg {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(180deg, rgba(7, 8, 13, 0.35), rgba(7, 8, 13, 0.82)),
+          radial-gradient(circle at 50% 20%, rgba(196, 90, 30, 0.35), transparent 42%);
+      }
+      .home-inner {
+        position: relative;
+        z-index: 1;
+        padding: 28px 16px 16px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .card {
+        border-radius: 16px;
+        min-height: 148px;
+        padding: 10px;
+      }
+      .card.dash {
+        border-style: dashed;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .mini-court {
+        height: 92px;
+        border-radius: 8px;
+        background: linear-gradient(#c45a1e, #9a3f12);
+        box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.7);
+        position: relative;
+      }
+      .mini-p {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--ours);
+        box-shadow: 0 0 8px rgba(255, 59, 59, 0.7);
+      }
+
+      .notes {
+        display: grid;
+        gap: 12px;
+      }
+      .panel {
+        border-radius: 18px;
+        padding: 16px 16px 14px;
+      }
+      .panel h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .panel p,
+      .panel li {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .swatch {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--stroke);
+      }
+      .swatch b {
+        display: block;
+        height: 36px;
+      }
+      .swatch span {
+        display: block;
+        padding: 6px 8px 8px;
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .compare div {
+        border-radius: 12px;
+        padding: 10px;
+        border: 1px solid var(--stroke);
+      }
+      .old {
+        background: #1a1a2e;
+      }
+      .new {
+        background: rgba(18, 22, 32, 0.7);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <p class="kicker">DESIGN PREVIEW · NOT APPLIED</p>
+      <h1>Pro Tactical Dark 시안</h1>
+      <p class="lead">
+        실제 앱에는 아직 적용되지 않은 미리보기입니다. 왼쪽이 에디터·홈 목업이고, 오른쪽은 컬러와
+        글래스 규칙입니다. 탭으로 메뉴가 열린 상태와 마킹 서브툴도 볼 수 있습니다.
+      </p>
+      <div class="tabs">
+        <button class="tab on" data-view="editor" type="button">에디터</button>
+        <button class="tab" data-view="menu" type="button">오른쪽 메뉴</button>
+        <button class="tab" data-view="mark" type="button">마킹모드</button>
+        <button class="tab" data-view="home" type="button">홈</button>
+      </div>
+
+      <div class="layout">
+        <div class="phone" aria-label="시안 미리보기">
+          <section class="screen on" id="view-editor">
+            <header class="top">
+              <div class="top-left">
+                <div class="nav">
+                  <button class="ghost" type="button">뒤로</button>
+                  <div class="title">파이프 공격</div>
+                  <button class="ghost" type="button">캡처</button>
+                  <button class="ghost" type="button">영상</button>
+                </div>
+                <div class="tools">
+                  <span class="ghost" style="font-weight: 800">&lt;</span>
+                  <span class="chip on">전술모드</span>
+                  <span class="chip">영역</span>
+                  <span class="chip">3D 보기</span>
+                  <span class="chip">마킹모드</span>
+                  <span class="icon" title="이전">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+                      />
+                    </svg>
+                  </span>
+                  <span class="icon dim" title="앞으로">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="m15 15 6-6m0 0-6-6m6 6H9a6 6 0 0 0 0 12h3"
+                      />
+                    </svg>
+                  </span>
+                </div>
+              </div>
+              <div class="save-col">
+                <button class="save" type="button">저장</button>
+                <button class="burger" type="button" data-open-menu aria-label="도구 메뉴">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      d="M5 7h14M5 12h14M5 17h14"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </header>
+            <div class="sub glass" id="mark-sub">
+              <span class="chip on">펜</span>
+              <span class="chip">지우개</span>
+              <span class="chip">레이저</span>
+              <span class="chip">화살</span>
+              <span class="dot" style="background: #ccff00"></span>
+              <span class="dot" style="background: #39ff14"></span>
+              <span class="dot" style="background: #00f5ff"></span>
+              <span class="dot" style="background: #ff3df5"></span>
+            </div>
+            <div class="stage">
+              <div class="court">
+                <div class="net"></div>
+                <div class="attack"></div>
+                <svg class="trail" viewBox="0 0 200 320" preserveAspectRatio="none">
+                  <defs>
+                    <filter id="glow">
+                      <feGaussianBlur stdDeviation="1.6" result="b" />
+                      <feMerge>
+                        <feMergeNode in="b" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
+                  <path
+                    d="M108 70 C 120 120, 80 150, 86 210"
+                    stroke="#ccff3d"
+                    stroke-width="2.4"
+                    fill="none"
+                    filter="url(#glow)"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M92 78 C 70 130, 118 160, 132 206"
+                    stroke="#00f5ff"
+                    stroke-width="2"
+                    fill="none"
+                    opacity="0.85"
+                    filter="url(#glow)"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div class="fan" style="left: 54%; top: 18%"></div>
+                <div class="ball" style="left: 54%; top: 20%"></div>
+                <div class="marker opp" style="left: 38%; top: 16%">P</div>
+                <div class="marker opp" style="left: 70%; top: 16%">P</div>
+                <div class="cover" style="left: 50%; top: 68%"></div>
+                <div class="marker ours" style="left: 22%; top: 78%">OH</div>
+                <div class="marker ours" style="left: 50%; top: 82%">L</div>
+                <div class="marker ours" style="left: 78%; top: 78%">OH</div>
+                <div class="marker ours" style="left: 34%; top: 58%">MB</div>
+                <div class="marker ours" style="left: 66%; top: 58%">OP</div>
+                <div class="marker ours" style="left: 78%; top: 42%">S</div>
+              </div>
+              <aside class="menu glass" id="side-menu">
+                <button class="chip" type="button">동선 숨김</button>
+                <button class="chip" type="button">구역</button>
+                <button class="chip" type="button">대형</button>
+                <button class="chip" type="button">선수</button>
+                <button class="chip" type="button">콘</button>
+                <button class="chip" type="button">텍스트</button>
+              </aside>
+            </div>
+            <footer class="bottom glass">
+              <div class="meta">
+                <span>같은 전술 프로젝트 ∨</span>
+                <span>컷 타임라인 ∧</span>
+              </div>
+              <div class="playrow">
+                <button class="play" type="button">▶</button>
+                <div class="slider"></div>
+                <span class="chip">1배</span>
+              </div>
+            </footer>
+          </section>
+
+          <section class="screen" id="view-home">
+            <div class="home-bg"></div>
+            <div class="home-inner">
+              <p class="kicker">VOLLEYBALL PLAYBOOK</p>
+              <div style="display: flex; justify-content: space-between; align-items: end">
+                <h2 style="margin: 6px 0 0; font-size: 26px">전술 보드</h2>
+                <span class="icon">⚙</span>
+              </div>
+              <p style="color: var(--muted); font-size: 12px; line-height: 1.45">
+                어두운 작전실. 프로젝트 카드만 글래스로 띄웁니다.
+              </p>
+              <p style="margin: 18px 0 8px; font-size: 12px; color: var(--muted)">전술 프로젝트</p>
+              <div class="cards">
+                <div class="card glass dash">+ 새 전술 프로젝트</div>
+                <div class="card glass">
+                  <div class="mini-court">
+                    <span class="mini-p" style="left: 20%; top: 70%"></span>
+                    <span class="mini-p" style="left: 48%; top: 74%"></span>
+                    <span class="mini-p" style="left: 72%; top: 68%"></span>
+                    <span class="mini-p" style="left: 36%; top: 48%; background: #3b8bff"></span>
+                  </div>
+                  <p style="margin: 8px 0 0; font-size: 13px; font-weight: 700">기본 앨범</p>
+                  <p style="margin: 2px 0 0; font-size: 11px; color: var(--muted)">전술 4개</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="notes">
+          <section class="panel glass">
+            <h2>이 시안에서 확인할 것</h2>
+            <ul>
+              <li>배경은 거의 검정, 코트·마커·궤적만 밝게.</li>
+              <li>헤더·기능바·타임라인·메뉴는 반투명 글래스.</li>
+              <li>저장만 시안 솔리드. 선택 칩은 얇은 시안 링.</li>
+              <li>선수 레드/블루는 네온에 가깝고, 동선은 라임·시안 글로우.</li>
+            </ul>
+          </section>
+          <section class="panel glass">
+            <h2>컬러 토큰</h2>
+            <div class="swatches">
+              <div class="swatch"><b style="background: #07080d"></b><span>배경 #07080D</span></div>
+              <div class="swatch"><b style="background: #5ee0d0"></b><span>액센트 #5EE0D0</span></div>
+              <div class="swatch"><b style="background: #c45a1e"></b><span>코트 #C45A1E</span></div>
+              <div class="swatch"><b style="background: #ff3b3b"></b><span>우리팀 #FF3B3B</span></div>
+              <div class="swatch"><b style="background: #3b8bff"></b><span>상대팀 #3B8BFF</span></div>
+              <div class="swatch"><b style="background: #ccff3d"></b><span>동선 #CCFF3D</span></div>
+              <div class="swatch"><b style="background: #ffd54f"></b><span>공 #FFD54F</span></div>
+              <div class="swatch"><b style="background: #8b95a8"></b><span>보조글 #8B95A8</span></div>
+            </div>
+          </section>
+          <section class="panel glass">
+            <h2>지금 앱 vs 시안</h2>
+            <div class="compare">
+              <div class="old">
+                현재<br />불투명 네이비 바<br />#1A1A2E / #8FB4C4<br />코트가 UI와 비슷한 주황
+              </div>
+              <div class="new">
+                시안<br />글래스 + 딥 블랙<br />#07080D / #5EE0D0<br />코트만 테라코타, UI는 시안
+              </div>
+            </div>
+          </section>
+          <section class="panel glass">
+            <h2>아직 적용되지 않음</h2>
+            <p>
+              이 페이지는 <code style="color: var(--accent)">/tactical-dark-preview.html</code> 미리보기입니다.
+              괜찮으면 그때 실제 앱 토큰·툴바에 옮기면 됩니다.
+            </p>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script>
+      const editor = document.getElementById("view-editor");
+      const home = document.getElementById("view-home");
+      const menu = document.getElementById("side-menu");
+      const burger = document.querySelector(".burger");
+      const mark = document.getElementById("mark-sub");
+      const chips = [...document.querySelectorAll(".tools .chip")];
+
+      function setView(name) {
+        document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.view === name));
+        home.classList.toggle("on", name === "home");
+        editor.classList.toggle("on", name !== "home");
+        menu.classList.toggle("on", name === "menu");
+        burger.classList.toggle("on", name === "menu");
+        mark.classList.toggle("on", name === "mark");
+        chips.forEach((c) => c.classList.toggle("on", name === "mark" ? c.textContent === "마킹모드" : c.textContent === "전술모드"));
+      }
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => setView(tab.dataset.view));
+      });
+      burger.addEventListener("click", () => {
+        const open = !menu.classList.contains("on");
+        setView(open ? "menu" : "editor");
+      });
+    </script>
+  </body>
+</html>

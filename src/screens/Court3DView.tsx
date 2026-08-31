@@ -31,6 +31,7 @@ import {
   shadeHex,
   type CameraCorner,
 } from "../lib/court3d";
+import { COURT_FILL } from "../design/tokens";
 import { courtMeters } from "../lib/defaultPlay";
 import { coverageRadius, defaultCoverageOn } from "../lib/inspect";
 import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
@@ -208,7 +209,7 @@ function Scene(props: Props) {
 
   return (
     <>
-      <color attach="background" args={["#5d6774"]} />
+      <color attach="background" args={["#121820"]} />
       <hemisphereLight args={["#f2f4f8", "#8a7a62", 1.05]} />
       <ambientLight intensity={0.72} />
       <directionalLight position={[8, 18, 10]} intensity={1.75} />
@@ -465,7 +466,7 @@ function CourtSurface({ court }: { court: CourtType }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
       <planeGeometry args={[width, length]} />
-      <meshBasicMaterial color="#e87830" />
+      <meshBasicMaterial color={COURT_FILL} />
     </mesh>
   );
 }

@@ -8,7 +8,7 @@ import "./index.css";
 async function bootNative() {
   if (!Capacitor.isNativePlatform()) return;
   try {
-    await StatusBar.setBackgroundColor({ color: "#1a1a2e" });
+    await StatusBar.setBackgroundColor({ color: "#07080d" });
     await StatusBar.setStyle({ style: Style.Light });
   } catch {
     // 웹에서는 플러그인이 없어도 됩니다.

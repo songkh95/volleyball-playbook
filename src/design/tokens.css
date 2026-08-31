@@ -1,0 +1,46 @@
+/*
+  Pro Tactical Dark — 디자인 소스 오브 트루스.
+
+  새 화면·버튼을 만들 때 여기 없는 색을 컴포넌트에 직접 넣지 마세요.
+  색·보더·글래스를 바꿀 때는 이 파일과 tokens.ts를 같이 고칩니다.
+*/
+
+:root {
+  --td-bg: #07080d;
+  --td-bg-2: #0c1018;
+  --td-panel: #121620;
+  --td-glass: rgba(18, 22, 32, 0.58);
+  --td-glass-2: rgba(255, 255, 255, 0.06);
+  --td-stroke: rgba(255, 255, 255, 0.1);
+  --td-stroke-strong: rgba(255, 255, 255, 0.18);
+  --td-text: #e8eef6;
+  --td-muted: #8b95a8;
+  --td-dim: #5a6270;
+  --td-accent: #5ee0d0;
+  --td-accent-ink: #06221d;
+  --td-court: #c45a1e;
+  --td-court-dark: #9a3f12;
+  --td-line: #fff8f0;
+  --td-ours: #ff3b3b;
+  --td-opp: #3b8bff;
+  --td-trail: #ccff3d;
+  --td-ball: #ffd54f;
+  --td-danger: #ff4d4d;
+  --td-blur: 18px;
+  --td-radius: 16px;
+  --td-radius-sm: 10px;
+}
+
+.glass {
+  background: var(--td-glass);
+  backdrop-filter: blur(var(--td-blur));
+  -webkit-backdrop-filter: blur(var(--td-blur));
+  border: 1px solid var(--td-stroke);
+}
+
+.glass-bar {
+  background: color-mix(in srgb, var(--td-glass) 88%, transparent);
+  backdrop-filter: blur(var(--td-blur));
+  -webkit-backdrop-filter: blur(var(--td-blur));
+  border: 1px solid var(--td-stroke);
+}

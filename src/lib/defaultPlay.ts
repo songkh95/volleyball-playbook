@@ -1,6 +1,5 @@
 import {
   BALL_YELLOW,
-  TEAM_BLUE,
   TEAM_RED,
   type Album,
   type CourtObject,
@@ -8,6 +7,7 @@ import {
   type FormationPreset,
   type LandingFan,
   type Play,
+  type PlayerTeam,
   type RosterSize,
 } from "../types/play";
 import { uid } from "./id";
@@ -40,8 +40,9 @@ function player(
   y: number,
   label: string,
   color: string = TEAM_RED,
+  team: PlayerTeam = "ours",
 ): CourtObject {
-  const ours = color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+  const ours = team !== "opp";
   return {
     id: uid(),
     kind: "player",
@@ -49,6 +50,7 @@ function player(
     y,
     label,
     color,
+    team,
     coverageOn: ours,
     coverageM: ours ? 2.5 : undefined,
   };
@@ -144,7 +146,7 @@ export function createPlay(input: {
     cuts: [
       {
         id: uid(),
-        name: "Cut 1",
+        name: "장면 1",
         durationMs: 1000,
         objects: defaultObjects(input.rosterSize, input.court),
         strokes: [],
@@ -203,6 +205,59 @@ export function duplicatePlay(play: Play, title?: string): Play {
   };
 }
 
+export const SCENE_NAME_CHIPS = [
+  "서브",
+  "A속공",
+  "B속공",
+  "백어택",
+  "리시브",
+  "블로킹",
+  "찬스볼",
+] as const;
+
+const SCENE_NAME_RE = /^(?:Cut|장면)\s+(\d+)$/i;
+
+/** 예전 Cut N 이름을 장면 N으로 보여 준다. 직접 지은 이름은 그대로. */
+export function sceneLabel(name: string | undefined, index = 0): string {
+  const raw = name?.trim();
+  if (!raw) return `장면 ${index + 1}`;
+  const match = SCENE_NAME_RE.exec(raw);
+  if (match) return `장면 ${match[1]}`;
+  return raw;
+}
+
 export function nextCutName(cuts: { name: string }[]): string {
-  return `Cut ${cuts.length + 1}`;
+  let max = cuts.length;
+  for (const cut of cuts) {
+    const match = SCENE_NAME_RE.exec(cut.name.trim());
+    if (match) max = Math.max(max, Number(match[1]));
+  }
+  return `장면 ${max + 1}`;
+}
+
+function remapY(y: number, from: CourtType, to: CourtType): number {
+  if (from === to) return y;
+  const fromL = courtMeters(from).length;
+  const toL = courtMeters(to).length;
+  return Math.min(1, Math.max(0, (y * fromL) / toL));
+}
+
+/** 코트 길이가 바뀌어도 실제 미터 위치를 유지한다. */
+export function remapPlayToCourt(play: Play, court: CourtType): Play {
+  if (play.court === court) return play;
+  const from = play.court;
+  const mapY = (y: number) => remapY(y, from, court);
+  return {
+    ...play,
+    court,
+    updatedAt: Date.now(),
+    cuts: play.cuts.map((cut) => ({
+      ...cut,
+      objects: cut.objects.map((o) => ({ ...o, y: mapY(o.y) })),
+      strokes: cut.strokes.map((s) => ({
+        ...s,
+        points: s.points.map((p) => ({ ...p, y: mapY(p.y) })),
+      })),
+    })),
+  };
 }

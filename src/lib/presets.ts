@@ -1,4 +1,5 @@
-import { TEAM_BLUE, TEAM_RED, type CourtObject, type CourtType } from "../types/play";
+import { TEAM_BLUE_LEGACY } from "../design/tokens";
+import { TEAM_BLUE, TEAM_RED, type CourtObject, type CourtType, type PlayerTeam } from "../types/play";
 import { netYNorm } from "./defaultPlay";
 import { uid } from "./id";
 
@@ -7,6 +8,7 @@ export function newPlayer(
   opts?: {
     label?: string;
     color?: string;
+    team?: PlayerTeam;
     coverageOn?: boolean;
     coverageM?: number;
     x?: number;
@@ -14,8 +16,14 @@ export function newPlayer(
   },
 ): CourtObject {
   const net = netYNorm(court);
-  const color = opts?.color ?? TEAM_RED;
-  const ours = color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+  const colorHint = opts?.color?.toLowerCase() ?? "";
+  const team: PlayerTeam =
+    opts?.team ??
+    (colorHint === TEAM_BLUE.toLowerCase() || colorHint === TEAM_BLUE_LEGACY.toLowerCase()
+      ? "opp"
+      : "ours");
+  const ours = team !== "opp";
+  const color = opts?.color ?? (ours ? TEAM_RED : TEAM_BLUE);
   const coverageOn = opts?.coverageOn ?? ours;
   return {
     id: uid(),
@@ -24,6 +32,7 @@ export function newPlayer(
     y: opts?.y ?? (ours ? net * 0.2 : (net + 1) / 2),
     label: opts?.label ?? "P",
     color,
+    team,
     coverageOn,
     coverageM: coverageOn ? (opts?.coverageM ?? 2.5) : undefined,
   };
@@ -67,7 +76,7 @@ export function applyUserPreset(
   const extras: CourtObject[] = [];
   const mapped = cPlayers.map((p, i) => {
     const s = pPlayers[i];
-    return s ? { ...p, x: s.x, y: s.y, label: s.label, color: s.color } : p;
+    return s ? { ...p, x: s.x, y: s.y, label: s.label, color: s.color, team: s.team } : p;
   });
   for (let i = cPlayers.length; i < pPlayers.length; i++) {
     extras.push({ ...pPlayers[i], id: uid() });

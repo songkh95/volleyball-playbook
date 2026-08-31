@@ -139,7 +139,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
   return (
     <Modal open title="공" onClose={onClose}>
       <p className="mb-3 text-sm leading-relaxed text-white/65">
-        이 컷에서 공의 높이와 다음 컷으로 가는 움직임을 정합니다. 누르면 바로
+        이 장면에서 공의 높이와 다음 장면으로 가는 움직임을 정합니다. 누르면 바로
         적용됩니다.
       </p>
 
@@ -148,7 +148,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
         <button
           type="button"
           className={`rounded-xl py-2.5 text-xs font-semibold ${
-            mode === "auto" ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            mode === "auto" ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
           onClick={() => applyBand("auto")}
         >
@@ -159,7 +159,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
             key={item}
             type="button"
             className={`rounded-xl py-2.5 text-xs font-semibold ${
-              mode === item ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+              mode === item ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
             }`}
             onClick={() => applyBand(item)}
           >
@@ -212,7 +212,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
             key={item ?? "normal"}
             type="button"
             className={`rounded-xl py-2.5 text-xs font-semibold ${
-              flight === item ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+              flight === item ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
             }`}
             onClick={() => applyFlight(item)}
           >
@@ -225,19 +225,19 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
           ? "선수에서 선수로 빠르게 갑니다. 도착한 뒤에는 선수에 붙어 접촉을 유지합니다."
           : flight === "slow"
             ? "선수에게 갈 때 큰 포물선을 그리며 천천히 떨어집니다."
-            : "지금처럼 컷 사이에 보통 속도로 이동합니다."}
+            : "지금처럼 장면 사이에 보통 속도로 이동합니다."}
       </p>
 
       <p className="mb-1.5 text-xs font-semibold text-white/50">낙하 부채</p>
       <p className="mb-2 text-[11px] leading-relaxed text-white/40">
-        다음 컷으로 공이 가는 방향을 부채꼴이 따라갑니다. 선수 원과 겹치면 색이
+        다음 장면으로 공이 가는 방향을 부채꼴이 따라갑니다. 선수 원과 겹치면 색이
         합쳐집니다.
       </p>
       <div className="mb-3 grid grid-cols-2 gap-1.5">
         <button
           type="button"
           className={`rounded-xl py-2.5 text-xs font-semibold ${
-            !fanOn ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            !fanOn ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
           onClick={() => applyFanOn(false)}
         >
@@ -246,7 +246,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
         <button
           type="button"
           className={`rounded-xl py-2.5 text-xs font-semibold ${
-            fanOn ? "bg-white text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+            fanOn ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
           }`}
           onClick={() => applyFanOn(true)}
         >

@@ -8,6 +8,7 @@ type Props = {
   initial?: string;
   placeholder?: string;
   confirmLabel?: string;
+  suggestions?: readonly string[];
   onClose: () => void;
   onSubmit: (value: string) => void;
 };
@@ -19,6 +20,7 @@ export function RenameModal({
   initial = "",
   placeholder,
   confirmLabel = "확인",
+  suggestions,
   onClose,
   onSubmit,
 }: Props) {
@@ -37,6 +39,24 @@ export function RenameModal({
   return (
     <Modal open title={title} onClose={onClose}>
       <label className="mb-1 block text-sm text-white/70">{label}</label>
+      {suggestions && suggestions.length > 0 ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {suggestions.map((name) => (
+            <button
+              key={name}
+              type="button"
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                value === name
+                  ? "bg-accent text-ink"
+                  : "bg-ink text-white/80 ring-1 ring-line"
+              }`}
+              onClick={() => onSubmit(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <input
         className="mb-5 w-full rounded-xl bg-ink px-3 py-3 outline-none ring-1 ring-line focus:ring-accent"
         value={value}

@@ -1,4 +1,11 @@
-import { TEAM_BLUE, type CourtObject, type CourtType, type LandingFan } from "../types/play";
+import { TEAM_BLUE_LEGACY } from "../design/tokens";
+import {
+  TEAM_BLUE,
+  type CourtObject,
+  type CourtType,
+  type LandingFan,
+  type PlayerTeam,
+} from "../types/play";
 import { courtMeters, netYNorm } from "./defaultPlay";
 
 export const COVERAGE_MIN = 1.5;
@@ -18,8 +25,15 @@ export function coverageRadius(player: CourtObject) {
   return Math.min(COVERAGE_MAX, Math.max(COVERAGE_MIN, n));
 }
 
+export function playerTeam(player: CourtObject): PlayerTeam {
+  if (player.team === "ours" || player.team === "opp") return player.team;
+  const c = player.color.toLowerCase();
+  if (c === TEAM_BLUE.toLowerCase() || c === TEAM_BLUE_LEGACY.toLowerCase()) return "opp";
+  return "ours";
+}
+
 export function isOpponent(player: CourtObject) {
-  return player.color.toLowerCase() === TEAM_BLUE.toLowerCase();
+  return playerTeam(player) === "opp";
 }
 
 export function defaultCoverageOn(player: CourtObject) {

@@ -195,7 +195,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
         />
       </div>
 
-      <div className="shrink-0 border-t border-line bg-ink-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="shrink-0 glass-bar px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
         <div className="mb-2 grid grid-cols-2 gap-2">
           <button
             type="button"

@@ -5,6 +5,7 @@ import { courtMeters, netYNorm } from "../lib/defaultPlay";
 import { coverageRadius, defaultCoverageOn, fanSectorPoints } from "../lib/inspect";
 import { zoneCells } from "../lib/zones";
 import { isLightColor } from "../lib/colors";
+import { COURT_FILL, COURT_LINE, LABEL_ON_LIGHT, STAGE_BG } from "../design/tokens";
 import type { Trail } from "../lib/interpolate";
 import { resolveStrokeKind } from "../lib/stroke";
 import type {
@@ -602,7 +603,7 @@ function paintScene(
   ballSpin: Map<string, number>,
   lastBallPos: Map<string, { x: number; y: number }>,
 ): CourtRect {
-  ctx.fillStyle = "#1a1a2e";
+  ctx.fillStyle = STAGE_BG;
   ctx.fillRect(0, 0, cssW, cssH);
   ctx.save();
   ctx.translate(zoom.tx, zoom.ty);
@@ -912,10 +913,10 @@ function drawCourt(
   const meters = courtMeters(court);
   const sy = h / meters.length;
 
-  ctx.fillStyle = "#e87830";
+  ctx.fillStyle = COURT_FILL;
   ctx.fillRect(x, y, w, h);
 
-  ctx.strokeStyle = "#ffffff";
+  ctx.strokeStyle = COURT_LINE;
   ctx.lineWidth = Math.max(2, w * 0.008);
   ctx.strokeRect(x, y, w, h);
 
@@ -1065,6 +1066,8 @@ function drawTrail(
 
   ctx.save();
   ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = Math.max(6, size * 0.018);
   ctx.lineWidth = Math.max(1.5, size * 0.008);
   ctx.setLineDash([size * 0.028, size * 0.02]);
   ctx.lineCap = "round";
@@ -1140,9 +1143,17 @@ function drawObject(
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
   ctx.fillStyle = obj.color;
+  ctx.shadowColor = obj.color;
+  ctx.shadowBlur = r * 0.85;
   ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255,255,255,0.28)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
 
-  ctx.fillStyle = isLightColor(obj.color) ? "#1a1a2e" : "#ffffff";
+  ctx.fillStyle = isLightColor(obj.color) ? LABEL_ON_LIGHT : "#ffffff";
   ctx.font = `700 ${Math.max(9, r * 0.72)}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";

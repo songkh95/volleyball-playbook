@@ -82,7 +82,7 @@ export function EditTextModal({ object, onClose, onSave, onDelete }: Props) {
           type="button"
           onClick={() => setBold((v) => !v)}
           className={`rounded-xl py-2.5 text-sm font-bold ring-1 ${
-            bold ? "bg-white text-ink ring-white" : "bg-ink text-white/80 ring-line"
+            bold ? "bg-accent text-ink ring-accent" : "bg-ink text-white/80 ring-line"
           }`}
         >
           볼드
@@ -91,7 +91,7 @@ export function EditTextModal({ object, onClose, onSave, onDelete }: Props) {
           type="button"
           onClick={() => setItalic((v) => !v)}
           className={`rounded-xl py-2.5 text-sm italic ring-1 ${
-            italic ? "bg-white text-ink ring-white" : "bg-ink text-white/80 ring-line"
+            italic ? "bg-accent text-ink ring-accent" : "bg-ink text-white/80 ring-line"
           }`}
         >
           기울기

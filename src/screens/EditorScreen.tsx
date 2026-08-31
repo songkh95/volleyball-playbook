@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CoverImg } from "../components/CoverSlot";
 import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { ConfirmModal } from "../components/ConfirmModal";
@@ -11,9 +11,10 @@ import { PresetModal } from "../components/PresetModal";
 import { RenameModal } from "../components/RenameModal";
 import { SavePlayModal } from "../components/SavePlayModal";
 import { ZoneModal } from "../components/ZoneModal";
+import { CourtModal } from "../components/CourtModal";
 import { Modal } from "../components/Modal";
 import { downloadBlob, downloadPng, fileSafeName } from "../lib/capture";
-import { duplicatePlay, nextCutName, netYNorm } from "../lib/defaultPlay";
+import { duplicatePlay, nextCutName, netYNorm, remapPlayToCourt, sceneLabel, SCENE_NAME_CHIPS } from "../lib/defaultPlay";
 import { saveCapture, savePlay } from "../lib/db";
 import { isPlayDirty } from "../lib/dirty";
 import {
@@ -40,9 +41,9 @@ import {
 import { applyUserPreset, newCone, newPlayer, newText } from "../lib/presets";
 import { PEN_COLORS, strokeNearPoint } from "../lib/stroke";
 import {
-  TEAM_BLUE,
   type Album,
   type CourtObject,
+  type CourtType,
   type EditorTool,
   type FormationPreset,
   type Play,
@@ -94,6 +95,7 @@ export function EditorScreen({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
+  const [courtOpen, setCourtOpen] = useState(false);
   const [presetOpen, setPresetOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [renameTitleOpen, setRenameTitleOpen] = useState(false);
@@ -105,6 +107,7 @@ export function EditorScreen({
   const [drawKind, setDrawKind] = useState<StrokeKind>("arrow");
   const [drawColor, setDrawColor] = useState("#ccff00");
   const [toolsOpen, setToolsOpen] = useState(true);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [albumStripOpen, setAlbumStripOpen] = useState(albumStripOpenMemory);
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [showTrails, setShowTrails] = useState(true);
@@ -131,6 +134,7 @@ export function EditorScreen({
   const loopPlayRef = useRef(false);
   const playRef = useRef(play);
   const undoRef = useRef<Play[]>([]);
+  const redoRef = useRef<Play[]>([]);
   const eraseDidRef = useRef(false);
   const savedRef = useRef(structuredClone(play));
   const persistPausedRef = useRef(false);
@@ -138,6 +142,7 @@ export function EditorScreen({
   const fanUndoAtRef = useRef(0);
   const holeTimerRef = useRef(0);
   const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
   playheadRef.current = playhead;
   playingRef.current = playing;
   playSpeedRef.current = playSpeed;
@@ -256,7 +261,9 @@ export function EditorScreen({
   function pushUndo() {
     undoRef.current.push(structuredClone(playRef.current));
     if (undoRef.current.length > 40) undoRef.current.shift();
+    redoRef.current = [];
     setUndoCount(undoRef.current.length);
+    setRedoCount(0);
   }
 
   function updatePlay(cuts: Play["cuts"]) {
@@ -273,8 +280,21 @@ export function EditorScreen({
   function undo() {
     const prev = undoRef.current.pop();
     if (!prev) return;
+    redoRef.current.push(structuredClone(playRef.current));
+    if (redoRef.current.length > 40) redoRef.current.shift();
     setUndoCount(undoRef.current.length);
+    setRedoCount(redoRef.current.length);
     restorePlay(prev);
+  }
+
+  function redo() {
+    const next = redoRef.current.pop();
+    if (!next) return;
+    undoRef.current.push(structuredClone(playRef.current));
+    if (undoRef.current.length > 40) undoRef.current.shift();
+    setUndoCount(undoRef.current.length);
+    setRedoCount(redoRef.current.length);
+    restorePlay(next);
   }
 
   function editCutIndex() {
@@ -297,6 +317,13 @@ export function EditorScreen({
           : c,
       ),
     );
+  }
+
+  function setCourt(court: CourtType) {
+    const current = playRef.current;
+    if (current.court === court) return;
+    pushUndo();
+    restorePlay(remapPlayToCourt(current, court));
   }
 
   function addCut() {
@@ -381,7 +408,7 @@ export function EditorScreen({
     const net = netYNorm(current.court);
     let placed = current.cuts[0]?.objects ?? [];
     const created = drafts.map((draft) => {
-      const ours = draft.color.toLowerCase() !== TEAM_BLUE.toLowerCase();
+      const ours = draft.team !== "opp";
       const y = ours ? net * 0.22 : net + (1 - net) * 0.45;
       const occupied =
         placed.filter(
@@ -601,20 +628,21 @@ export function EditorScreen({
         setCaptureNotice("코트를 캡처할 수 없습니다.");
         return;
       }
-      const cut = playRef.current.cuts[editCutIndex()] ?? playRef.current.cuts[0];
+      const cutIndex = editCutIndex();
+      const cut = playRef.current.cuts[cutIndex] ?? playRef.current.cuts[0];
       const stamp = new Date();
       const time = `${stamp.getHours().toString().padStart(2, "0")}${stamp.getMinutes().toString().padStart(2, "0")}`;
       await saveCapture({
         id: uid(),
         playId: playRef.current.id,
         playTitle: playRef.current.title,
-        cutName: cut?.name || "Cut",
+        cutName: sceneLabel(cut?.name, cutIndex),
         createdAt: Date.now(),
         blob,
       });
       downloadPng(
         blob,
-        `${fileSafeName(playRef.current.title)}-${fileSafeName(cut?.name || "Cut")}-${time}`,
+        `${fileSafeName(playRef.current.title)}-${fileSafeName(sceneLabel(cut?.name, cutIndex))}-${time}`,
       );
       setCaptureNotice("갤러리에 저장했고, 기기로도 내려받았습니다.");
     } catch (err) {
@@ -670,7 +698,8 @@ export function EditorScreen({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink">
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <div className="relative z-40 grid shrink-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] items-start gap-x-2 gap-y-1.5 px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2">
         <button
           type="button"
           className="rounded-xl px-3 py-2 text-sm text-white/85"
@@ -699,17 +728,113 @@ export function EditorScreen({
         >
           영상
         </button>
-        <button
-          type="button"
-          className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-ink"
-          onClick={() => setSaveOpen(true)}
-        >
-          저장
-        </button>
-      </header>
-
-      <div className="pointer-events-none shrink-0 px-3 pb-4 pt-2">
-        <div className="pointer-events-auto flex max-w-full flex-col gap-1.5">
+      </div>
+        <div className="relative col-start-2 row-start-1 row-span-2 flex flex-col items-stretch gap-1 self-start">
+          <button
+            type="button"
+            className="rounded-xl bg-accent px-3 py-2 text-sm font-semibold text-ink"
+            onClick={() => setSaveOpen(true)}
+          >
+            저장
+          </button>
+          <button
+            type="button"
+            className={`flex items-center justify-center rounded-xl py-1.5 ${
+              toolsMenuOpen
+                ? "bg-accent text-ink"
+                : "text-white/85 glass"
+            }`}
+            aria-label={toolsMenuOpen ? "도구 메뉴 닫기" : "도구 메뉴"}
+            aria-expanded={toolsMenuOpen}
+            onClick={() => setToolsMenuOpen((v) => !v)}
+          >
+            {toolsMenuOpen ? (
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                <path
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  d="M6 6l12 12M18 6L6 18"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                <path
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  d="M5 7h14M5 12h14M5 17h14"
+                />
+              </svg>
+            )}
+          </button>
+          {toolsMenuOpen ? (
+            <div className="absolute right-0 top-full z-40 mt-1.5 flex min-w-[5.5rem] flex-col gap-1 rounded-xl glass p-1.5 shadow-xl">
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  setCourtOpen(true);
+                }}
+              >
+                코트
+              </ToolBtn>
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                active={showTrails}
+                onClick={() => setShowTrails((v) => !v)}
+              >
+                {showTrails ? "동선 숨김" : "동선 표시"}
+              </ToolBtn>
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  setZoneOpen(true);
+                }}
+              >
+                구역
+              </ToolBtn>
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  setPresetOpen(true);
+                }}
+              >
+                대형
+              </ToolBtn>
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  setAddPlayerOpen(true);
+                }}
+              >
+                선수
+              </ToolBtn>
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  addCone();
+                }}
+              >
+                콘
+              </ToolBtn>
+              <ToolBtn
+                className="w-full px-2.5 py-2 text-[11px]"
+                onClick={() => {
+                  setToolsMenuOpen(false);
+                  addText();
+                }}
+              >
+                텍스트
+              </ToolBtn>
+            </div>
+          ) : null}
+        </div>
+        <div className="col-start-1 row-start-2 flex max-w-full flex-col gap-1.5">
           <div className="flex max-w-full items-center gap-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
@@ -772,18 +897,37 @@ export function EditorScreen({
                 >
                   마킹모드
                 </ToolBtn>
-                <span className="mx-2.5 h-3.5 w-px shrink-0 bg-white/40" aria-hidden />
-                <ToolBtn active={showTrails} onClick={() => setShowTrails((v) => !v)}>
-                  {showTrails ? "동선 숨김" : "동선 표시"}
-                </ToolBtn>
-                <ToolBtn onClick={undo} disabled={undoCount === 0}>
-                  실행 취소
-                </ToolBtn>
-                <ToolBtn onClick={() => setZoneOpen(true)}>구역</ToolBtn>
-                <ToolBtn onClick={() => setPresetOpen(true)}>대형</ToolBtn>
-                <ToolBtn onClick={() => setAddPlayerOpen(true)}>선수</ToolBtn>
-                <ToolBtn onClick={addCone}>콘</ToolBtn>
-                <ToolBtn onClick={addText}>텍스트</ToolBtn>
+                <span className="mx-1.5 h-3.5 w-px shrink-0 bg-white/40" aria-hidden />
+                <HistoryBtn
+                  label="이전"
+                  disabled={undoCount === 0}
+                  onClick={undo}
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+                    <path
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+                    />
+                  </svg>
+                </HistoryBtn>
+                <HistoryBtn
+                  label="앞으로 가기"
+                  disabled={redoCount === 0}
+                  onClick={redo}
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
+                    <path
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m15 15 6-6m0 0-6-6m6 6H9a6 6 0 0 0 0 12h3"
+                    />
+                  </svg>
+                </HistoryBtn>
               </>
             ) : null}
           </div>
@@ -795,7 +939,7 @@ export function EditorScreen({
                   전술모드
                 </span>
               </div>
-              <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg bg-white/10 px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg glass px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 <MarkBtn active={tool === "pen"} onClick={() => setTool("pen")}>
                   펜
                 </MarkBtn>
@@ -854,7 +998,7 @@ export function EditorScreen({
                     전술모드
                   </span>
                 </div>
-                <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg bg-white/10 px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg glass px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   <span className="mr-1 shrink-0 text-[10px] font-semibold text-white/70">
                     선수 영역
                   </span>
@@ -892,7 +1036,7 @@ export function EditorScreen({
                     전술모드
                   </span>
                 </div>
-                <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg bg-white/10 px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg glass px-2 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                   <span className="mr-1 shrink-0 text-[10px] font-semibold text-white/70">
                     공 영역
                   </span>
@@ -922,6 +1066,14 @@ export function EditorScreen({
       </div>
 
       <div className="relative min-h-0 flex-1 isolate">
+        {toolsMenuOpen ? (
+          <button
+            type="button"
+            className="absolute inset-0 z-20 cursor-default"
+            aria-label="메뉴 닫기"
+            onClick={() => setToolsMenuOpen(false)}
+          />
+        ) : null}
         <div className={view3d ? "hidden" : "h-full"}>
           <CourtCanvas
             ref={canvasRef}
@@ -951,7 +1103,7 @@ export function EditorScreen({
           />
         </div>
         {view3d ? (
-          <div className="absolute inset-0 z-10 h-full w-full bg-[#10151f]">
+          <div className="absolute inset-0 z-10 h-full w-full bg-ink">
             <Court3DView
               ref={court3dRef}
               court={play.court}
@@ -968,14 +1120,14 @@ export function EditorScreen({
               cameraNonce={cameraNonce}
             />
             <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center px-2">
-              <div className="pointer-events-auto flex flex-wrap justify-center gap-1 rounded-xl bg-black/50 p-1 ring-1 ring-white/15">
+              <div className="pointer-events-auto flex flex-wrap justify-center gap-1 rounded-xl glass p-1">
                 {cameraPresets(play.court).map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     className={`rounded-lg px-2.5 py-1 text-[10px] font-medium ${
                       cameraPreset === item.id
-                        ? "bg-white text-ink"
+                        ? "bg-accent text-ink"
                         : "text-white/80"
                     }`}
                     onClick={() => {
@@ -995,14 +1147,14 @@ export function EditorScreen({
         ) : null}
         {exportBusy ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50">
-            <p className="rounded-xl bg-panel px-4 py-3 text-sm text-white/90 ring-1 ring-line">
+            <p className="rounded-xl glass px-4 py-3 text-sm text-white/90">
               영상을 만드는 중…
             </p>
           </div>
         ) : null}
       </div>
 
-      <div className="shrink-0 bg-ink-2 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="shrink-0 glass-bar px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {siblings.length > 1 ? (
           <section className="border-t border-line pt-1.5">
             <button
@@ -1092,14 +1244,14 @@ export function EditorScreen({
             className="px-0.5 py-0.5 text-left text-[10px] text-white/50"
             onClick={() => setTimelineOpen((v) => !v)}
           >
-            컷 타임라인 {timelineOpen ? "∧" : "∨"}
+            타임라인 {timelineOpen ? "∧" : "∨"}
           </button>
           {timelineOpen ? (
             <>
               <div className="mb-3 mt-1 flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink"
+                  className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-ink"
                   onClick={togglePlay}
                 >
                   {playing ? "정지" : "재생"}
@@ -1110,8 +1262,8 @@ export function EditorScreen({
                   title="반복 재생"
                   className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
                     looping
-                      ? "border-white bg-white text-ink"
-                      : "border-white/40 text-white/80"
+                      ? "border-accent bg-accent text-ink"
+                      : "border-white/20 text-white/80"
                   }`}
                   onClick={() => {
                     if (playing && looping) {
@@ -1164,14 +1316,14 @@ export function EditorScreen({
                 </button>
                 <div className="relative shrink-0">
                   {speedOpen ? (
-                    <div className="absolute bottom-full right-0 z-20 mb-1 flex flex-col gap-0.5 rounded-lg bg-panel p-1 ring-1 ring-line">
+                    <div className="absolute bottom-full right-0 z-20 mb-1 flex flex-col gap-0.5 rounded-lg glass p-1">
                       {([2, 1.5, 1.25, 1] as const).map((speed) => (
                         <button
                           key={speed}
                           type="button"
                           className={`rounded-md px-2.5 py-1 text-[10px] font-medium whitespace-nowrap ${
                             playSpeed === speed
-                              ? "bg-white text-ink"
+                              ? "bg-accent text-ink"
                               : "text-white/75"
                           }`}
                           onClick={() => {
@@ -1205,8 +1357,8 @@ export function EditorScreen({
                       type="button"
                       className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${
                         active
-                          ? "border-white bg-white text-ink"
-                          : "border-white/40 text-white/75"
+                          ? "border-accent bg-accent text-ink"
+                          : "border-white/20 text-white/75"
                       }`}
                       onClick={() => {
                         setPlaying(false);
@@ -1217,7 +1369,7 @@ export function EditorScreen({
                         setPlayhead(i);
                       }}
                     >
-                      {cut.name || `Cut ${i + 1}`}
+                      {sceneLabel(cut.name, i)}
                     </button>
                   );
                 })}
@@ -1331,18 +1483,24 @@ export function EditorScreen({
       <ConfirmModal
         open={confirmDeletePlayer}
         title="선수 삭제"
-        message={`‘${editing?.label ?? "선수"}’ 선수를 모든 컷에서 삭제할까요?`}
+        message={`‘${editing?.label ?? "선수"}’ 선수를 모든 장면에서 삭제할까요?`}
         confirmLabel="삭제"
         onClose={() => setConfirmDeletePlayer(false)}
         onConfirm={deletePlayer}
       />
       <ConfirmModal
         open={confirmDeleteCut}
-        title="컷 삭제"
-        message={`현재 컷을 삭제하시겠습니까?\n현재 컷: ${editCut?.name || `Cut ${editIndex + 1}`} (전체 ${play.cuts.length}개 중 ${editIndex + 1}번째)`}
+        title="장면 삭제"
+        message={`현재 장면을 삭제하시겠습니까?\n현재 장면: ${sceneLabel(editCut?.name, editIndex)} (전체 ${play.cuts.length}개 중 ${editIndex + 1}번째)`}
         confirmLabel="삭제"
         onClose={() => setConfirmDeleteCut(false)}
         onConfirm={deleteCut}
+      />
+      <CourtModal
+        open={courtOpen}
+        value={play.court}
+        onClose={() => setCourtOpen(false)}
+        onSelect={setCourt}
       />
       <ZoneModal
         open={zoneOpen}
@@ -1401,9 +1559,10 @@ export function EditorScreen({
       />
       <RenameModal
         open={renameCut !== null}
-        title="컷 이름"
+        title="장면 이름"
         label="이름"
-        initial={renameCut !== null ? play.cuts[renameCut]?.name || `Cut ${renameCut + 1}` : ""}
+        initial={renameCut !== null ? sceneLabel(play.cuts[renameCut]?.name, renameCut) : ""}
+        suggestions={SCENE_NAME_CHIPS}
         confirmLabel="저장"
         onClose={() => setRenameCut(null)}
         onSubmit={(name) => {
@@ -1419,7 +1578,7 @@ export function EditorScreen({
         <p className="mb-5 text-sm text-white/75">{captureNotice}</p>
         <button
           type="button"
-          className="w-full rounded-xl bg-white py-3 font-semibold text-ink"
+          className="w-full rounded-xl bg-accent py-3 font-semibold text-ink"
           onClick={() => setCaptureNotice(null)}
         >
           확인
@@ -1431,16 +1590,16 @@ export function EditorScreen({
         onClose={exportBusy ? undefined : () => setExportOpen(false)}
       >
         <p className="mb-4 text-sm leading-relaxed text-white/70">
-          컷 타임라인을 재생한 결과를 GIF나 영상 파일로 저장합니다. 3D 보기 중이면 3D
+          타임라인을 재생한 결과를 GIF나 영상 파일로 저장합니다. 3D 보기 중이면 3D
           화면으로 저장됩니다. 갤러리에서도 볼 수 있습니다.
           {play.cuts.length <= 1
-            ? " 컷이 하나면 1초 동안 같은 장면이 저장됩니다."
+            ? " 장면이 하나면 1초 동안 같은 모습이 저장됩니다."
             : ""}
         </p>
         <div className="grid gap-2">
           <button
             type="button"
-            className="rounded-xl bg-white py-3 font-semibold text-ink disabled:opacity-40"
+            className="rounded-xl bg-accent py-3 font-semibold text-ink disabled:opacity-40"
             disabled={exportBusy}
             onClick={() => void exportTimeline("gif")}
           >
@@ -1483,16 +1642,44 @@ export function EditorScreen({
   );
 }
 
+function HistoryBtn({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border disabled:opacity-30 ${
+        disabled ? "border-white/15 text-white/35" : "border-white/20 text-white/85"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ToolBtn({
   children,
   onClick,
   active,
   disabled,
+  className = "",
 }: {
   children: string;
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -1500,8 +1687,10 @@ function ToolBtn({
       disabled={disabled}
       onClick={onClick}
       className={`inline-flex shrink-0 items-center justify-center rounded-md border px-1.5 py-1 text-center text-[9px] font-medium leading-tight whitespace-nowrap disabled:opacity-30 ${
-        active ? "border-white text-white" : "border-white/40 text-white/80"
-      }`}
+        active
+          ? "border-accent/70 bg-accent/15 text-accent"
+          : "border-white/15 text-white/75"
+      } ${className}`}
     >
       {children}
     </button>
@@ -1522,7 +1711,7 @@ function MarkBtn({
       type="button"
       onClick={onClick}
       className={`shrink-0 rounded px-1.5 py-1 text-center text-[9px] font-medium leading-tight whitespace-nowrap ${
-        active ? "bg-white/20 text-white" : "text-white/70"
+        active ? "bg-accent/20 text-accent" : "text-white/70"
       }`}
     >
       {children}

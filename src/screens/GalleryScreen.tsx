@@ -3,6 +3,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { Modal } from "../components/Modal";
 import { downloadBlob, fileSafeName } from "../lib/capture";
 import { CoverImg } from "../components/CoverSlot";
+import { sceneLabel } from "../lib/defaultPlay";
 import type { Album, GalleryCapture, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -90,14 +91,14 @@ export function GalleryScreen({
               <button
                 key={cap.id}
                 type="button"
-                className="overflow-hidden rounded-2xl bg-panel text-left ring-1 ring-line"
+                className="overflow-hidden rounded-2xl glass"
                 onClick={() => setViewing(cap)}
               >
                 <div className="aspect-[3/4] overflow-hidden">
                   <CaptureImg blob={cap.blob} />
                 </div>
                 <p className="truncate px-2 py-2 text-xs text-white/60">
-                  {cap.cutName} · {formatWhen(cap.createdAt)}
+                  {sceneLabel(cap.cutName)} · {formatWhen(cap.createdAt)}
                 </p>
               </button>
             ))}
@@ -157,7 +158,7 @@ export function GalleryScreen({
           </button>
           {capturesOpen ? (
             folders.length === 0 ? (
-              <div className="rounded-2xl bg-panel px-4 py-5 text-sm leading-relaxed text-white/55 ring-1 ring-line">
+              <div className="rounded-2xl glass px-4 py-5 text-sm leading-relaxed text-white/55">
                 아직 캡처가 없습니다. 전술 보드에서 [캡처]나 [영상]을 누르면 이 전술 폴더에
                 저장됩니다.
               </div>
@@ -167,7 +168,7 @@ export function GalleryScreen({
                   <button
                     key={item.playId}
                     type="button"
-                    className="overflow-hidden rounded-2xl bg-panel p-3 text-left ring-1 ring-line"
+                    className="overflow-hidden rounded-2xl glass p-3 text-left"
                     onClick={() => setFolderPlayId(item.playId)}
                   >
                     <div className="aspect-[3/4] overflow-hidden rounded-xl">
@@ -219,7 +220,7 @@ export function GalleryScreen({
                         <button
                           key={play.id}
                           type="button"
-                          className="flex aspect-[3/4] flex-col overflow-hidden rounded-2xl bg-panel p-3 text-left ring-1 ring-line"
+                          className="flex aspect-[3/4] flex-col overflow-hidden rounded-2xl glass p-3 text-left"
                           onClick={() => onOpenPlay(play.id)}
                         >
                           <div className="min-h-0 flex-1 overflow-hidden rounded-xl">
@@ -234,7 +235,7 @@ export function GalleryScreen({
                           </div>
                           <h4 className="mt-2 truncate text-sm font-semibold">{play.title}</h4>
                           <p className="text-xs text-white/50">
-                            {play.court === "half" ? "하프" : "풀"} · 컷 {play.cuts.length}
+                            {play.court === "half" ? "하프" : "풀"} · 장면 {play.cuts.length}
                           </p>
                         </button>
                       ))}
@@ -292,7 +293,7 @@ function CaptureViewer({
 }) {
   if (!capture) return null;
   return (
-    <Modal open title={capture.cutName} onClose={onClose}>
+    <Modal open title={sceneLabel(capture.cutName)} onClose={onClose}>
       <div className="mb-4 h-64 overflow-hidden rounded-xl bg-ink">
         <CaptureImg blob={capture.blob} fit="contain" controls />
       </div>

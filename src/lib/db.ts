@@ -1,5 +1,8 @@
+import type { LiveMatch } from "../types/match";
 import type { Album, FormationPreset, GalleryCapture, Play } from "../types/play";
+import { BUILTIN_PRESET_ORDER, builtinFormations } from "./formations";
 import { uid } from "./id";
+import { CURRENT_MATCH_ID } from "./matchRules";
 
 export type CoverRecord = {
   id: string;
@@ -8,8 +11,8 @@ export type CoverRecord = {
 };
 
 const DB_NAME = "volleyball-playbook";
-const DB_VERSION = 5;
-const STORE_NAMES = ["plays", "albums", "presets", "captures", "covers"] as const;
+const DB_VERSION = 6;
+const STORE_NAMES = ["plays", "albums", "presets", "captures", "covers", "matches"] as const;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -182,7 +185,7 @@ async function runMigration(): Promise<void> {
   for (const play of plays) {
     const cuts = play.cuts.map((c, i) => ({
       ...c,
-      name: c.name || `Cut ${i + 1}`,
+      name: c.name || `장면 ${i + 1}`,
     }));
     const albumId = play.albumId || fallback;
     if (albumId && (!play.albumId || cuts.some((c, i) => c.name !== play.cuts[i].name))) {
@@ -202,6 +205,12 @@ async function runMigration(): Promise<void> {
       const extraPlays = latestPlays.filter((p) => p.albumId === extra.id);
       if (extraPlays.length === 0) await deleteOne("albums", extra.id);
     }
+  }
+
+  const existing = await listPresets();
+  const have = new Set(existing.map((p) => p.id));
+  for (const preset of builtinFormations()) {
+    if (!have.has(preset.id)) await savePreset(preset);
   }
 
   migrated = true;
@@ -288,7 +297,17 @@ export function deleteCover(id: string) {
 
 export async function listPresets(): Promise<FormationPreset[]> {
   const presets = await getAll<FormationPreset>("presets");
-  return presets.sort((a, b) => b.updatedAt - a.updatedAt);
+  const order = BUILTIN_PRESET_ORDER as readonly string[];
+  return presets.sort((a, b) => {
+    const ai = order.indexOf(a.id);
+    const bi = order.indexOf(b.id);
+    if (ai !== -1 || bi !== -1) {
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    }
+    return b.updatedAt - a.updatedAt;
+  });
 }
 
 export function getPreset(id: string) {
@@ -301,6 +320,14 @@ export function savePreset(preset: FormationPreset) {
 
 export function deletePreset(id: string) {
   return deleteOne("presets", id);
+}
+
+export function getLiveMatch() {
+  return getOne<LiveMatch>("matches", CURRENT_MATCH_ID);
+}
+
+export function saveLiveMatch(match: LiveMatch) {
+  return putOne("matches", { ...match, id: CURRENT_MATCH_ID });
 }
 
 export async function replaceAll(data: {

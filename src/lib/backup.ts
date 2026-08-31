@@ -50,7 +50,7 @@ export function parseBackup(text: string): BackupBundle {
       ...p,
       cuts: (p.cuts ?? []).map((c, i) => ({
         ...c,
-        name: c.name || `Cut ${i + 1}`,
+        name: c.name || `장면 ${i + 1}`,
       })),
     })),
     albums: rec.albums ?? [],

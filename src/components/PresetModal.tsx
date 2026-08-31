@@ -66,7 +66,7 @@ export function PresetModal({ open, presets, onClose, onSelect, onCreateNew }: P
         </>
       ) : (
         <>
-          <p className="mb-3 text-sm text-white/60">현재 컷의 선수·공 위치를 바꿉니다.</p>
+          <p className="mb-3 text-sm text-white/60">현재 장면의 선수·공 위치를 바꿉니다.</p>
           <div className="mb-3 grid max-h-72 gap-2 overflow-y-auto">
             {presets.map((p) => (
               <button

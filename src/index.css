@@ -1,13 +1,28 @@
 @import "tailwindcss";
+@import "./design/tokens.css";
 
 @theme {
-  --color-ink: #1a1a2e;
-  --color-ink-2: #16162a;
-  --color-panel: #22223a;
-  --color-line: #3d3d5c;
-  --color-court: #e87830;
-  --color-court-dark: #d26522;
-  --color-accent: #8fb4c4;
+  --color-ink: var(--td-bg);
+  --color-ink-2: var(--td-bg-2);
+  --color-panel: var(--td-panel);
+  --color-line: var(--td-stroke);
+  --color-court: var(--td-court);
+  --color-court-dark: var(--td-court-dark);
+  --color-accent: var(--td-accent);
+  --color-muted: var(--td-muted);
+  --color-ours: var(--td-ours);
+  --color-opp: var(--td-opp);
+}
+
+@property --match-sq {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 5.5rem;
+}
+
+.match-board {
+  container-type: inline-size;
+  --match-sq: min(5.5rem, calc((100cqi - 1.5rem - 0.75rem) / 4));
 }
 
 html,
@@ -15,8 +30,8 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  background: #1a1a2e;
-  color: #f2f2f7;
+  background: var(--td-bg);
+  color: var(--td-text);
   font-family:
     "Pretendard",
     "Apple SD Gothic Neo",
