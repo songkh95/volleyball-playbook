@@ -16,7 +16,6 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import {
   ballPoseAtPlayhead,
-  mannequinPoseOf,
   type BallPose,
 } from "../lib/ballFlight";
 import {
@@ -25,6 +24,10 @@ import {
   getCameraPose,
   NET_BOTTOM,
   NET_HEIGHT,
+  PLAYER_HEIGHT,
+  PLAYER_RADIUS,
+  PLAYER_SPLIT,
+  shadeHex,
   netWorldZ,
   worldToCourt,
   type CameraCorner,
@@ -37,7 +40,6 @@ import { yieldToUi } from "../lib/exportMovie";
 import { viewAtPlayhead, type Trail } from "../lib/interpolate";
 import type { CourtObject, CourtType, Cut, Stroke, ZoneMode } from "../types/play";
 import { zoneCells } from "../lib/zones";
-import { PlayerMannequin } from "../components/PlayerMannequin";
 
 const EXPORT_WIDTH = 480;
 
@@ -273,14 +275,12 @@ function Scene(props: Props) {
               beginDrag(o.id);
             }}
           >
-            <PlayerMannequin
+            <PlayerCylinder
               obj={o}
               court={props.court}
-              pose={mannequinPoseOf(ball, o.id)}
               highlight={
                 ball?.playerId === o.id && ball.zone !== "air" ? ball.zone : null
               }
-              ball={ball}
             />
           </group>
         ))}
@@ -893,6 +893,56 @@ function BoardText({ obj, court }: { obj: CourtObject; court: CourtType }) {
   );
 }
 
+function PlayerCylinder({
+  obj,
+  court,
+  highlight,
+}: {
+  obj: CourtObject;
+  court: CourtType;
+  highlight: "upper" | "lower" | null;
+}) {
+  const { x, z } = courtToWorld(obj.x, obj.y, court);
+  const lowerH = PLAYER_SPLIT;
+  const upperH = PLAYER_HEIGHT - PLAYER_SPLIT;
+  const lowerColor = shadeHex(obj.color, -0.32);
+  const upperColor = shadeHex(obj.color, 0.1);
+  const label = obj.label.slice(0, 4);
+  const texture = useMemo(() => makeLabelTexture(label, obj.color), [label, obj.color]);
+
+  useEffect(() => () => texture.dispose(), [texture]);
+
+  return (
+    <group position={[x, 0, z]}>
+      <mesh position={[0, lowerH / 2, 0]} castShadow>
+        <cylinderGeometry args={[PLAYER_RADIUS, PLAYER_RADIUS, lowerH, 18]} />
+        <meshStandardMaterial
+          color={lowerColor}
+          roughness={0.55}
+          emissive={highlight === "lower" ? "#fff3c4" : "#000000"}
+          emissiveIntensity={highlight === "lower" ? 0.35 : 0}
+        />
+      </mesh>
+      <mesh position={[0, lowerH + upperH / 2, 0]} castShadow>
+        <cylinderGeometry args={[PLAYER_RADIUS, PLAYER_RADIUS, upperH, 18]} />
+        <meshStandardMaterial
+          color={upperColor}
+          roughness={0.5}
+          emissive={highlight === "upper" ? "#fff3c4" : "#000000"}
+          emissiveIntensity={highlight === "upper" ? 0.35 : 0}
+        />
+      </mesh>
+      <mesh position={[0, PLAYER_SPLIT, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[PLAYER_RADIUS * 0.82, PLAYER_RADIUS + 0.012, 24]} />
+        <meshBasicMaterial color="#0b0b0b" />
+      </mesh>
+      <sprite position={[0, PLAYER_HEIGHT + 0.28, 0]} scale={[0.95, 0.38, 1]}>
+        <spriteMaterial map={texture} transparent depthWrite={false} />
+      </sprite>
+    </group>
+  );
+}
+
 function VolleyballModel() {
   const { scene } = useGLTF("/models/volleyball.glb");
   const { clone, scale } = useMemo(() => {
@@ -1019,6 +1069,40 @@ function FloorStroke({ stroke, court }: { stroke: Stroke; court: CourtType }) {
       ))}
     </group>
   );
+}
+
+function makeLabelTexture(text: string, color: string, wide = false) {
+  const canvas = document.createElement("canvas");
+  const w = wide ? 384 : 256;
+  canvas.width = w;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.clearRect(0, 0, w, 96);
+    const r = 18;
+    const right = w - 8;
+    ctx.fillStyle = "rgba(12,12,20,0.78)";
+    ctx.beginPath();
+    ctx.moveTo(r, 8);
+    ctx.arcTo(right, 8, right, 88, r);
+    ctx.arcTo(right, 88, 8, 88, r);
+    ctx.arcTo(8, 88, 8, 8, r);
+    ctx.arcTo(8, 8, right, 8, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.fillStyle = "#f4f4f8";
+    ctx.font = `700 ${wide ? 34 : 42}px Pretendard, Apple SD Gothic Neo, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text || "·", w / 2, 50);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 function makeZoneNumTexture(text: string) {

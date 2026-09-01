@@ -13,15 +13,6 @@ export type BallPose = {
   flight?: BallFlight;
 };
 
-export type MannequinPose = "idle" | "receive" | "set" | "spike";
-
-export function mannequinPoseOf(ball: BallPose | null, playerId: string): MannequinPose {
-  if (!ball || ball.playerId !== playerId || ball.zone === "air") return "idle";
-  if (ball.zone === "lower") return "receive";
-  if (ball.flight === "spike") return "spike";
-  return "set";
-}
-
 export const HEIGHT_AIR = 2.15;
 export const HEIGHT_LOWER_CONTACT = 0.5;
 export const HEIGHT_UPPER_CONTACT =
