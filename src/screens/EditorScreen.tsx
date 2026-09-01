@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CoverImg } from "../components/CoverSlot";
-import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EditBallModal } from "../components/EditBallModal";
 import { EditConeModal } from "../components/EditConeModal";
@@ -9,6 +8,7 @@ import { EditPlayerModal } from "../components/EditPlayerModal";
 import { EditTextModal } from "../components/EditTextModal";
 import { PresetModal } from "../components/PresetModal";
 import { RenameModal } from "../components/RenameModal";
+import { SceneCutModal } from "../components/SceneCutModal";
 import { SavePlayModal } from "../components/SavePlayModal";
 import { ZoneModal } from "../components/ZoneModal";
 import { CourtModal } from "../components/CourtModal";
@@ -16,7 +16,6 @@ import { Modal } from "../components/Modal";
 import { downloadBlob, downloadPng, fileSafeName } from "../lib/capture";
 import { duplicatePlay, nextCutName, netYNorm, remapPlayToCourt, sceneLabel, SCENE_NAME_CHIPS } from "../lib/defaultPlay";
 import { saveCapture, savePlay } from "../lib/db";
-import { isPlayDirty } from "../lib/dirty";
 import {
   detectVideoFormat,
   encodeGif,
@@ -25,7 +24,7 @@ import {
   recordVideo,
 } from "../lib/exportMovie";
 import { uid } from "../lib/id";
-import { cloneCutAfter, viewAtPlayhead } from "../lib/interpolate";
+import { cloneCutAfter, cutDurationMs, playheadFromTime, timeFromPlayhead, timelineDurationSec, viewAtPlayhead } from "../lib/interpolate";
 import {
   ballTravelToward,
   defaultCoverageOn,
@@ -93,6 +92,7 @@ export function EditorScreen({
   const [speedOpen, setSpeedOpen] = useState(false);
   const [looping, setLooping] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
   const [courtOpen, setCourtOpen] = useState(false);
@@ -118,7 +118,6 @@ export function EditorScreen({
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
   const [view3d, setView3d] = useState(false);
   const [cameraPreset, setCameraPreset] = useState<CameraCorner>("bl");
   const [cameraNonce, setCameraNonce] = useState(0);
@@ -136,11 +135,12 @@ export function EditorScreen({
   const undoRef = useRef<Play[]>([]);
   const redoRef = useRef<Play[]>([]);
   const eraseDidRef = useRef(false);
-  const savedRef = useRef(structuredClone(play));
   const persistPausedRef = useRef(false);
-  const pendingLeaveRef = useRef<(() => void) | null>(null);
   const fanUndoAtRef = useRef(0);
   const holeTimerRef = useRef(0);
+  const clipboardRef = useRef<CourtObject[] | null>(null);
+  const editingIdRef = useRef<string | null>(null);
+  const selectedIdsRef = useRef<string[]>([]);
   const [undoCount, setUndoCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
   playheadRef.current = playhead;
@@ -148,6 +148,8 @@ export function EditorScreen({
   playSpeedRef.current = playSpeed;
   playRef.current = play;
   view3dRef.current = view3d;
+  editingIdRef.current = editingId;
+  selectedIdsRef.current = selectedIds;
 
   const lastCut = Math.max(0, play.cuts.length - 1);
   const view = useMemo(
@@ -178,7 +180,6 @@ export function EditorScreen({
     const next = withCoverageDefaults(play);
     if (next === play) return;
     onChange(next);
-    savedRef.current = structuredClone(next);
   }, [play.id]);
 
   useEffect(() => {
@@ -205,6 +206,7 @@ export function EditorScreen({
   useEffect(() => {
     if (persistPausedRef.current) return;
     const t = window.setTimeout(() => {
+      if (persistPausedRef.current) return;
       void savePlay(play);
     }, 250);
     return () => window.clearTimeout(t);
@@ -223,13 +225,15 @@ export function EditorScreen({
       if (lastTs === 0) lastTs = ts;
       const dt = (ts - lastTs) / 1000;
       lastTs = ts;
-      const next = playheadRef.current + dt * playSpeedRef.current;
-      if (next >= lastCut) {
-        if (loopPlayRef.current) {
-          const wrapped = Math.max(0, next - lastCut);
+      const cuts = playRef.current.cuts;
+      const total = timelineDurationSec(cuts);
+      let time = timeFromPlayhead(cuts, playheadRef.current) + dt * playSpeedRef.current;
+      if (time >= total - 1e-4) {
+        if (loopPlayRef.current && total > 0) {
+          time = time % total;
+          const wrapped = playheadFromTime(cuts, time);
           playheadRef.current = wrapped;
           setPlayhead(wrapped);
-          lastTs = ts;
           raf = window.requestAnimationFrame(step);
           return;
         }
@@ -239,6 +243,7 @@ export function EditorScreen({
         setLooping(false);
         return;
       }
+      const next = playheadFromTime(cuts, time);
       playheadRef.current = next;
       setPlayhead(next);
       raf = window.requestAnimationFrame(step);
@@ -306,17 +311,51 @@ export function EditorScreen({
   }
 
   function moveObject(id: string, x: number, y: number) {
+    moveObjects([{ id, x, y }]);
+  }
+
+  function moveObjects(moves: { id: string; x: number; y: number }[]) {
     const current = playRef.current;
     const i = editCutIndex();
     const cut = current.cuts[i];
-    if (!cut) return;
+    if (!cut || moves.length === 0) return;
+    const map = new Map(moves.map((m) => [m.id, m]));
     updatePlay(
       current.cuts.map((c, idx) =>
         idx === i
-          ? { ...c, objects: cut.objects.map((o) => (o.id === id ? { ...o, x, y } : o)) }
+          ? {
+              ...c,
+              objects: cut.objects.map((o) => {
+                const m = map.get(o.id);
+                return m ? { ...o, x: m.x, y: m.y } : o;
+              }),
+            }
           : c,
       ),
     );
+  }
+
+  function selectObject(id: string | null, additive = false) {
+    if (!id) {
+      setEditingId(null);
+      setSelectedIds([]);
+      return;
+    }
+    if (additive) {
+      setSelectedIds((prev) => {
+        const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+        setEditingId(next[next.length - 1] ?? null);
+        return next;
+      });
+      return;
+    }
+    setEditingId(id);
+    setSelectedIds([id]);
+  }
+
+  function selectIds(ids: string[]) {
+    setSelectedIds(ids);
+    setEditingId(ids[ids.length - 1] ?? null);
   }
 
   function setCourt(court: CourtType) {
@@ -344,6 +383,51 @@ export function EditorScreen({
     updatePlay(cuts);
     setPlayhead(Math.min(i, cuts.length - 1));
     setConfirmDeleteCut(false);
+  }
+
+  function setCutDuration(index: number, ms: number) {
+    const current = playRef.current;
+    const cut = current.cuts[index];
+    if (!cut || cutDurationMs(cut) === ms) return;
+    pushUndo();
+    updatePlay(
+      current.cuts.map((c, idx) => (idx === index ? { ...c, durationMs: ms } : c)),
+    );
+  }
+
+  function copySelected() {
+    const current = playRef.current;
+    const cut = current.cuts[editCutIndex()];
+    const ids = selectedIdsRef.current;
+    const picked = cut?.objects.filter((o) => ids.includes(o.id)) ?? [];
+    if (picked.length) {
+      clipboardRef.current = picked.map((o) => ({ ...o }));
+      return;
+    }
+    const id = editingIdRef.current;
+    const obj = cut?.objects.find((o) => o.id === id);
+    if (!obj) return;
+    clipboardRef.current = [{ ...obj }];
+  }
+
+  function pasteClipboard() {
+    const clip = clipboardRef.current;
+    if (!clip?.length) return;
+    pushUndo();
+    const copies = clip.map((o) => ({
+      ...o,
+      id: uid(),
+      x: Math.min(0.92, o.x + 0.06),
+      y: Math.min(0.92, o.y + 0.06),
+    }));
+    updatePlay(
+      playRef.current.cuts.map((c) => ({
+        ...c,
+        objects: [...c.objects, ...copies.map((o) => ({ ...o }))],
+      })),
+    );
+    setEditingId(copies[copies.length - 1]?.id ?? null);
+    setSelectedIds(copies.map((o) => o.id));
   }
 
   function addStroke(
@@ -388,16 +472,22 @@ export function EditorScreen({
   }
 
   function deletePlayer() {
-    if (!editingId) return;
+    const ids = selectedIdsRef.current.length
+      ? selectedIdsRef.current
+      : editingId
+        ? [editingId]
+        : [];
+    if (ids.length === 0) return;
     pushUndo();
-    const id = editingId;
+    const drop = new Set(ids);
     updatePlay(
       playRef.current.cuts.map((c) => ({
         ...c,
-        objects: c.objects.filter((o) => o.id !== id),
+        objects: c.objects.filter((o) => !drop.has(o.id)),
       })),
     );
     setEditingId(null);
+    setSelectedIds([]);
     setConfirmDeletePlayer(false);
   }
 
@@ -406,18 +496,21 @@ export function EditorScreen({
     pushUndo();
     const current = playRef.current;
     const net = netYNorm(current.court);
-    let placed = current.cuts[0]?.objects ?? [];
+    const oursDrafts = drafts.filter((d) => d.team !== "opp");
+    const oppDrafts = drafts.filter((d) => d.team === "opp");
+    function xs(count: number) {
+      if (count <= 1) return [0.5];
+      return Array.from({ length: count }, (_, i) => 0.18 + (0.64 * i) / (count - 1));
+    }
+    const oursX = xs(oursDrafts.length);
+    const oppX = xs(oppDrafts.length);
+    let oi = 0;
+    let pi = 0;
     const created = drafts.map((draft) => {
       const ours = draft.team !== "opp";
-      const y = ours ? net * 0.22 : net + (1 - net) * 0.45;
-      const occupied =
-        placed.filter(
-          (o) => o.kind === "player" && Math.hypot(o.x - 0.5, o.y - y) < 0.08,
-        ).length;
-      const x = Math.min(0.86, 0.5 + occupied * 0.08);
-      const player = newPlayer(current.court, { ...draft, x, y });
-      placed = [...placed, player];
-      return player;
+      const y = ours ? net * 0.28 : net + (1 - net) * 0.42;
+      const x = ours ? oursX[oi++] : oppX[pi++];
+      return newPlayer(current.court, { ...draft, x, y });
     });
     updatePlay(
       current.cuts.map((c) => ({
@@ -426,6 +519,8 @@ export function EditorScreen({
       })),
     );
     setAddPlayerOpen(false);
+    setEditingId(created[created.length - 1]?.id ?? null);
+    setSelectedIds(created.map((p) => p.id));
   }
 
   function addCone() {
@@ -435,6 +530,7 @@ export function EditorScreen({
       play.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...cone }] })),
     );
     setEditingId(cone.id);
+    setSelectedIds([cone.id]);
   }
 
   function addText() {
@@ -444,6 +540,7 @@ export function EditorScreen({
       play.cuts.map((c) => ({ ...c, objects: [...c.objects, { ...text }] })),
     );
     setEditingId(text.id);
+    setSelectedIds([text.id]);
   }
 
   function enterInspect() {
@@ -543,6 +640,7 @@ export function EditorScreen({
       })),
     );
     setEditingId(null);
+    setSelectedIds([]);
   }
 
   function applyFormation(preset: FormationPreset) {
@@ -580,40 +678,68 @@ export function EditorScreen({
     setPlaying(true);
   }
 
-  function markSaved(next: Play = playRef.current) {
-    savedRef.current = structuredClone(next);
+  function leaveNow(action: () => void) {
+    persistPausedRef.current = true;
+    void savePlay(playRef.current)
+      .then(action)
+      .catch((err) => {
+        persistPausedRef.current = false;
+        setCaptureNotice(err instanceof Error ? err.message : "저장하지 못했습니다.");
+      });
   }
 
-  function requestLeave(action: () => void) {
-    if (!isPlayDirty(playRef.current, savedRef.current)) {
-      action();
-      return;
+  useEffect(() => {
+    function typing(target: EventTarget | null) {
+      const el = target as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
     }
-    pendingLeaveRef.current = action;
-    setLeaveOpen(true);
-  }
-
-  function finishLeave() {
-    const action = pendingLeaveRef.current;
-    pendingLeaveRef.current = null;
-    setLeaveOpen(false);
-    action?.();
-  }
-
-  function leaveWithSave() {
-    persistPausedRef.current = true;
-    const current = playRef.current;
-    markSaved(current);
-    void savePlay(current).then(finishLeave);
-  }
-
-  function leaveWithoutSave() {
-    persistPausedRef.current = true;
-    const snap = structuredClone(savedRef.current);
-    playRef.current = snap;
-    onChange(snap);
-    void savePlay(snap).then(finishLeave);
-  }
+    function onKey(e: KeyboardEvent) {
+      if (typing(e.target)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        copySelected();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        pasteClipboard();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        const cut = playRef.current.cuts[editCutIndex()];
+        selectIds(cut?.objects.map((o) => o.id) ?? []);
+        return;
+      }
+      if (e.key === " " && !e.repeat) {
+        e.preventDefault();
+        if (playingRef.current) setPlaying(false);
+        else startPlay(false);
+        return;
+      }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (!editingIdRef.current && selectedIdsRef.current.length === 0) return;
+        e.preventDefault();
+        setConfirmDeletePlayer(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function commitSave(input: { title: string; albumId: string }) {
     return { ...playRef.current, title: input.title, albumId: input.albumId, updatedAt: Date.now() };
@@ -657,7 +783,7 @@ export function EditorScreen({
     try {
       const current = playRef.current;
       const frames = view3dRef.current
-        ? await court3dRef.current?.captureViews(moviePlayheads(current.cuts.length))
+        ? await court3dRef.current?.captureViews(moviePlayheads(current.cuts))
         : await canvasRef.current?.captureViews(movieViews(current.cuts, showTrails));
       if (!frames?.length) {
         throw new Error("코트를 캡처할 수 없습니다.");
@@ -703,7 +829,7 @@ export function EditorScreen({
         <button
           type="button"
           className="rounded-xl px-3 py-2 text-sm text-white/85"
-          onClick={() => requestLeave(onBack)}
+          onClick={() => leaveNow(onBack)}
         >
           뒤로
         </button>
@@ -878,6 +1004,8 @@ export function EditorScreen({
                     setView3d((v) => !v);
                     setDrawOpen(false);
                     setTool("select");
+                    setEditingId(null);
+                    setSelectedIds([]);
                   }}
                 >
                   3D 보기
@@ -1086,6 +1214,7 @@ export function EditorScreen({
             drawColor={drawColor}
             drawKind={drawKind}
             interactive={!playing && !view3d}
+            selectedIds={selectedIds}
             showCoverage={inspecting && inspectShowCoverage}
             holeAlpha={playing ? 0 : holeAlpha}
             onPointerStart={() => {
@@ -1096,7 +1225,10 @@ export function EditorScreen({
             }}
             onMoveBegin={pushUndo}
             onMove={moveObject}
-            onSelectPlayer={setEditingId}
+            onMoveMany={moveObjects}
+            onSelectPlayer={selectObject}
+            onSelectIds={selectIds}
+            onSelectNone={() => selectObject(null)}
             onStrokeEnd={addStroke}
             onEraseBegin={eraseBegin}
             onEraseAt={eraseAt}
@@ -1116,6 +1248,15 @@ export function EditorScreen({
               showCoverage={inspecting && inspectShowCoverage}
               zoneMode={zoneMode}
               holeAlpha={playing ? 0 : holeAlpha}
+              interactive={!playing}
+              onPointerStart={() => {
+                setPlaying(false);
+                const i = Math.min(lastCut, Math.max(0, Math.round(playheadRef.current)));
+                playheadRef.current = i;
+                setPlayhead(i);
+              }}
+              onMoveBegin={pushUndo}
+              onMove={moveObject}
               cameraPreset={cameraPreset}
               cameraNonce={cameraNonce}
             />
@@ -1141,7 +1282,7 @@ export function EditorScreen({
               </div>
             </div>
             <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[10px] text-white/70">
-              드래그하면 360도 회전
+              드래그로 선수·공을 옮깁니다. 빈 곳을 드래그하면 카메라가 돕니다.
             </p>
           </div>
         ) : null}
@@ -1215,7 +1356,7 @@ export function EditorScreen({
                           return;
                         }
                         if (item.id === play.id) return;
-                        requestLeave(() => onOpenPlay(item.id));
+                        leaveNow(() => onOpenPlay(item.id));
                       }}
                     >
                       <div className="pointer-events-none h-14 overflow-hidden bg-ink">
@@ -1387,7 +1528,7 @@ export function EditorScreen({
       </div>
 
       <EditBallModal
-        object={editing?.kind === "ball" ? editing : null}
+        object={!view3d && selectedIds.length <= 1 && editing?.kind === "ball" ? editing : null}
         court={play.court}
         travelTo={
           editing?.kind === "ball"
@@ -1441,7 +1582,7 @@ export function EditorScreen({
         }}
       />
       <EditConeModal
-        object={editing?.kind === "cone" ? editing : null}
+        object={!view3d && selectedIds.length <= 1 && editing?.kind === "cone" ? editing : null}
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
           if (!editingId) return;
@@ -1450,7 +1591,7 @@ export function EditorScreen({
         onDelete={deletePlayer}
       />
       <EditTextModal
-        object={editing?.kind === "text" ? editing : null}
+        object={!view3d && selectedIds.length <= 1 && editing?.kind === "text" ? editing : null}
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
           if (!editingId) return;
@@ -1464,7 +1605,7 @@ export function EditorScreen({
         onCreate={addPlayers}
       />
       <EditPlayerModal
-        object={editing?.kind === "player" ? editing : null}
+        object={!view3d && selectedIds.length <= 1 && editing?.kind === "player" ? editing : null}
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
           pushUndo();
@@ -1482,8 +1623,12 @@ export function EditorScreen({
       />
       <ConfirmModal
         open={confirmDeletePlayer}
-        title="선수 삭제"
-        message={`‘${editing?.label ?? "선수"}’ 선수를 모든 장면에서 삭제할까요?`}
+        title={selectedIds.length > 1 ? "객체 삭제" : "선수 삭제"}
+        message={
+          selectedIds.length > 1
+            ? `선택한 ${selectedIds.length}개를 모든 장면에서 삭제할까요?`
+            : `‘${editing?.label ?? "선수"}’ 선수를 모든 장면에서 삭제할까요?`
+        }
         confirmLabel="삭제"
         onClose={() => setConfirmDeletePlayer(false)}
         onConfirm={deletePlayer}
@@ -1516,7 +1661,6 @@ export function EditorScreen({
         onCreateNew={() => {
           setPresetOpen(false);
           const current = playRef.current;
-          markSaved(current);
           persistPausedRef.current = true;
           void savePlay(current).then(() => onCreateFormation(current));
         }}
@@ -1530,7 +1674,6 @@ export function EditorScreen({
         onCreateAlbum={onCreateAlbum}
         onSave={(input) => {
           const saved = commitSave(input);
-          markSaved(saved);
           onChange(saved);
           setSaveOpen(false);
           persistPausedRef.current = true;
@@ -1538,7 +1681,6 @@ export function EditorScreen({
         }}
         onSaveAndNew={(input) => {
           const saved = commitSave(input);
-          markSaved(saved);
           const next = duplicatePlay(saved, `${saved.title} 사본`);
           setSaveOpen(false);
           persistPausedRef.current = true;
@@ -1557,15 +1699,23 @@ export function EditorScreen({
           setRenameTitleOpen(false);
         }}
       />
-      <RenameModal
+      <SceneCutModal
         open={renameCut !== null}
-        title="장면 이름"
-        label="이름"
-        initial={renameCut !== null ? sceneLabel(play.cuts[renameCut]?.name, renameCut) : ""}
+        name={renameCut !== null ? sceneLabel(play.cuts[renameCut]?.name, renameCut) : ""}
+        fromLabel={renameCut !== null ? sceneLabel(play.cuts[renameCut]?.name, renameCut) : ""}
+        toLabel={
+          renameCut !== null && renameCut < play.cuts.length - 1
+            ? sceneLabel(play.cuts[renameCut + 1]?.name, renameCut + 1)
+            : null
+        }
+        durationMs={renameCut !== null ? cutDurationMs(play.cuts[renameCut]) : 1000}
         suggestions={SCENE_NAME_CHIPS}
-        confirmLabel="저장"
         onClose={() => setRenameCut(null)}
-        onSubmit={(name) => {
+        onDuration={(ms) => {
+          if (renameCut === null) return;
+          setCutDuration(renameCut, ms);
+        }}
+        onSave={(name) => {
           if (renameCut === null) return;
           pushUndo();
           updatePlay(
@@ -1629,15 +1779,6 @@ export function EditorScreen({
           </button>
         </div>
       </Modal>
-      <LeaveSaveModal
-        open={leaveOpen}
-        onCancel={() => {
-          pendingLeaveRef.current = null;
-          setLeaveOpen(false);
-        }}
-        onDiscard={leaveWithoutSave}
-        onSave={leaveWithSave}
-      />
     </div>
   );
 }

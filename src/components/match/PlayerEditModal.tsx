@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BACK_POS, playerById, posOf } from "../../lib/matchRules";
+import { BACK_POS, matchRosterSize, playerById, posOf } from "../../lib/matchRules";
 import type { LiveMatch, MatchPlayer, MatchTeamId } from "../../types/match";
 import { Modal } from "../Modal";
 
@@ -82,7 +82,7 @@ export function PlayerEditModal({
         onChange={(e) => setLabel(e.target.value)}
       />
 
-      {kind !== "court" ? (
+      {kind !== "court" && matchRosterSize(match) !== 9 ? (
         <div className="mb-4 flex min-h-11 items-center gap-2">
           <label className="flex flex-1 items-center gap-2 text-sm text-white/75">
             <input

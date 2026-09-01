@@ -37,6 +37,14 @@ export function courtToWorld(nx: number, ny: number, court: CourtType) {
   };
 }
 
+export function worldToCourt(x: number, z: number, court: CourtType) {
+  const { width, length } = courtMeters(court);
+  return {
+    x: x / width + 0.5,
+    y: 0.5 - z / length,
+  };
+}
+
 export function netWorldZ(court: CourtType) {
   const { length } = courtMeters(court);
   return length / 2 - 9;

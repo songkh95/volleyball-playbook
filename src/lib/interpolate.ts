@@ -85,6 +85,49 @@ export function trailsBetween(
   return trails;
 }
 
+export const DURATION_MS_MIN = 250;
+export const DURATION_MS_MAX = 8000;
+export const DURATION_MS_DEFAULT = 1000;
+export const DURATION_PRESETS_MS = [500, 1000, 1500, 2000, 3000] as const;
+
+export function cutDurationMs(cut: Cut | undefined): number {
+  const ms = cut?.durationMs;
+  if (!Number.isFinite(ms) || !ms || ms <= 0) return DURATION_MS_DEFAULT;
+  return Math.min(DURATION_MS_MAX, Math.max(DURATION_MS_MIN, ms));
+}
+
+export function cutDurationSec(cut: Cut | undefined): number {
+  return cutDurationMs(cut) / 1000;
+}
+
+export function timelineDurationSec(cuts: Cut[]): number {
+  if (cuts.length <= 1) return 1;
+  return cuts.slice(0, -1).reduce((sum, cut) => sum + cutDurationSec(cut), 0);
+}
+
+export function timeFromPlayhead(cuts: Cut[], playhead: number): number {
+  const last = Math.max(0, cuts.length - 1);
+  const p = Math.min(last, Math.max(0, playhead));
+  if (last === 0) return 0;
+  const i = Math.min(last - 1, Math.floor(p));
+  let time = 0;
+  for (let k = 0; k < i; k++) time += cutDurationSec(cuts[k]);
+  if (p >= last) return timelineDurationSec(cuts);
+  return time + (p - i) * cutDurationSec(cuts[i]);
+}
+
+export function playheadFromTime(cuts: Cut[], timeSec: number): number {
+  const last = Math.max(0, cuts.length - 1);
+  if (last === 0) return 0;
+  let left = Math.max(0, timeSec);
+  for (let i = 0; i < last; i++) {
+    const dur = cutDurationSec(cuts[i]);
+    if (left <= dur) return i + left / dur;
+    left -= dur;
+  }
+  return last;
+}
+
 /** playhead: 0 … cuts.length-1 (실수). 컷 사이는 선형 보간. */
 export function viewAtPlayhead(cuts: Cut[], playhead: number) {
   const last = Math.max(0, cuts.length - 1);
@@ -128,8 +171,12 @@ export function cloneCutAfter(cut: Cut, newId: string, name: string): Cut {
   return {
     id: newId,
     name,
-    durationMs: 1000,
+    durationMs: cutDurationMs(cut),
     objects: cut.objects.map((o) => ({ ...o })),
-    strokes: [],
+    strokes: cut.strokes.map((s) => ({
+      ...s,
+      id: `${newId}-${s.id}`,
+      points: s.points.map((p) => ({ ...p })),
+    })),
   };
 }

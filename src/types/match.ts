@@ -1,5 +1,5 @@
 export type MatchTeamId = "ours" | "opp";
-export type CourtPos = 1 | 2 | 3 | 4 | 5 | 6;
+export type CourtPos = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export type MatchStatus = "warmup" | "live" | "set-break" | "finished";
 export type MatchEventType =
   | "SCORE"
@@ -44,6 +44,21 @@ export type MatchSettings = {
   timeoutSeconds: number;
   timeoutsPerSet: number;
   subsPerSet: number;
+  rosterSize: 6 | 9;
+};
+
+export type SharedRosterRow = {
+  number: string;
+  label: string;
+  isLibero: boolean;
+};
+
+export type SharedRoster = {
+  id: string;
+  ours: SharedRosterRow[];
+  opp: SharedRosterRow[];
+  rosterSize: 6 | 9;
+  updatedAt: number;
 };
 
 export type LiveMatch = {

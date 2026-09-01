@@ -16,6 +16,7 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import {
   ballPoseAtPlayhead,
+  mannequinPoseOf,
   type BallPose,
 } from "../lib/ballFlight";
 import {
@@ -25,10 +26,7 @@ import {
   NET_BOTTOM,
   NET_HEIGHT,
   netWorldZ,
-  PLAYER_HEIGHT,
-  PLAYER_RADIUS,
-  PLAYER_SPLIT,
-  shadeHex,
+  worldToCourt,
   type CameraCorner,
 } from "../lib/court3d";
 import { COURT_FILL } from "../design/tokens";
@@ -39,6 +37,7 @@ import { yieldToUi } from "../lib/exportMovie";
 import { viewAtPlayhead, type Trail } from "../lib/interpolate";
 import type { CourtObject, CourtType, Cut, Stroke, ZoneMode } from "../types/play";
 import { zoneCells } from "../lib/zones";
+import { PlayerMannequin } from "../components/PlayerMannequin";
 
 const EXPORT_WIDTH = 480;
 
@@ -66,6 +65,11 @@ type Props = {
   zoneMode?: ZoneMode;
   cameraPreset: CameraCorner;
   cameraNonce: number;
+  interactive?: boolean;
+  onMove?: (id: string, x: number, y: number) => void;
+  onMoveBegin?: () => void;
+  onSelectPlayer?: (id: string) => void;
+  onPointerStart?: () => void;
 };
 
 export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView(
@@ -202,10 +206,28 @@ function waitFrames(count: number) {
 }
 
 function Scene(props: Props) {
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragBegan = useRef(false);
   const ball = useMemo(
     () => ballPoseAtPlayhead(props.cuts, props.playhead, props.court),
     [props.cuts, props.playhead, props.court],
   );
+  const interactive = Boolean(props.interactive);
+  const ballObj = props.objects.find((o) => o.kind === "ball");
+
+  function beginDrag(id: string) {
+    props.onPointerStart?.();
+    dragBegan.current = false;
+    setDragId(id);
+  }
+
+  function moveDrag(id: string, x: number, y: number) {
+    if (!dragBegan.current) {
+      dragBegan.current = true;
+      props.onMoveBegin?.();
+    }
+    props.onMove?.(id, x, y);
+  }
 
   return (
     <>
@@ -243,26 +265,64 @@ function Scene(props: Props) {
       {props.objects
         .filter((o) => o.kind === "player")
         .map((o) => (
-          <PlayerCylinder
+          <group
             key={o.id}
-            obj={o}
-            court={props.court}
-            highlight={
-              ball?.playerId === o.id && ball.zone !== "air" ? ball.zone : null
-            }
-          />
+            onPointerDown={(e) => {
+              if (!interactive) return;
+              e.stopPropagation();
+              beginDrag(o.id);
+            }}
+          >
+            <PlayerMannequin
+              obj={o}
+              court={props.court}
+              pose={mannequinPoseOf(ball, o.id)}
+              highlight={
+                ball?.playerId === o.id && ball.zone !== "air" ? ball.zone : null
+              }
+              ball={ball}
+            />
+          </group>
         ))}
       {props.objects
         .filter((o) => o.kind === "cone")
         .map((o) => (
-          <TrafficCone key={o.id} obj={o} court={props.court} />
+          <group
+            key={o.id}
+            onPointerDown={(e) => {
+              if (!interactive) return;
+              e.stopPropagation();
+              beginDrag(o.id);
+            }}
+          >
+            <TrafficCone obj={o} court={props.court} />
+          </group>
         ))}
       {props.objects
         .filter((o) => o.kind === "text")
         .map((o) => (
-          <BoardText key={o.id} obj={o} court={props.court} />
+          <group
+            key={o.id}
+            onPointerDown={(e) => {
+              if (!interactive) return;
+              e.stopPropagation();
+              beginDrag(o.id);
+            }}
+          >
+            <BoardText obj={o} court={props.court} />
+          </group>
         ))}
-      {ball ? <Ball pose={ball} court={props.court} /> : null}
+      {ball ? (
+        <group
+          onPointerDown={(e) => {
+            if (!interactive || !ballObj) return;
+            e.stopPropagation();
+            beginDrag(ballObj.id);
+          }}
+        >
+          <Ball pose={ball} court={props.court} />
+        </group>
+      ) : null}
       <BallArc cuts={props.cuts} playhead={props.playhead} court={props.court} />
       {props.showTrails
         ? props.trails.map((trail, i) => (
@@ -276,8 +336,54 @@ function Scene(props: Props) {
         preset={props.cameraPreset}
         court={props.court}
         nonce={props.cameraNonce}
+        enableRotate={!dragId}
       />
+      {dragId ? (
+        <DragFloor
+          court={props.court}
+          dragId={dragId}
+          onMove={moveDrag}
+          onUp={() => setDragId(null)}
+        />
+      ) : null}
     </>
+  );
+}
+
+function DragFloor({
+  court,
+  dragId,
+  onMove,
+  onUp,
+}: {
+  court: CourtType;
+  dragId: string;
+  onMove: (id: string, x: number, y: number) => void;
+  onUp: () => void;
+}) {
+  const { width, length } = courtMeters(court);
+  return (
+    <mesh
+      rotation={[-Math.PI / 2, 0, 0]}
+      position={[0, 0.03, 0]}
+      onPointerMove={(e) => {
+        e.stopPropagation();
+        const n = worldToCourt(e.point.x, e.point.z, court);
+        onMove(
+          dragId,
+          Math.min(0.97, Math.max(0.03, n.x)),
+          Math.min(0.97, Math.max(0.03, n.y)),
+        );
+      }}
+      onPointerUp={(e) => {
+        e.stopPropagation();
+        onUp();
+      }}
+      onPointerLeave={onUp}
+    >
+      <planeGeometry args={[width * 1.8, length * 1.8]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
   );
 }
 
@@ -285,10 +391,12 @@ function ViewControls({
   preset,
   court,
   nonce,
+  enableRotate = true,
 }: {
   preset: CameraCorner;
   court: CourtType;
   nonce: number;
+  enableRotate?: boolean;
 }) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const pose = getCameraPose(preset, court);
@@ -315,6 +423,7 @@ function ViewControls({
         enableDamping
         dampingFactor={0.08}
         enablePan={false}
+        enableRotate={enableRotate}
         minDistance={8}
         maxDistance={40}
         minPolarAngle={0.18}
@@ -784,56 +893,6 @@ function BoardText({ obj, court }: { obj: CourtObject; court: CourtType }) {
   );
 }
 
-function PlayerCylinder({
-  obj,
-  court,
-  highlight,
-}: {
-  obj: CourtObject;
-  court: CourtType;
-  highlight: "upper" | "lower" | null;
-}) {
-  const { x, z } = courtToWorld(obj.x, obj.y, court);
-  const lowerH = PLAYER_SPLIT;
-  const upperH = PLAYER_HEIGHT - PLAYER_SPLIT;
-  const lowerColor = shadeHex(obj.color, -0.32);
-  const upperColor = shadeHex(obj.color, 0.1);
-  const label = obj.label.slice(0, 4);
-  const texture = useMemo(() => makeLabelTexture(label, obj.color), [label, obj.color]);
-
-  useEffect(() => () => texture.dispose(), [texture]);
-
-  return (
-    <group position={[x, 0, z]}>
-      <mesh position={[0, lowerH / 2, 0]} castShadow>
-        <cylinderGeometry args={[PLAYER_RADIUS, PLAYER_RADIUS, lowerH, 18]} />
-        <meshStandardMaterial
-          color={lowerColor}
-          roughness={0.55}
-          emissive={highlight === "lower" ? "#fff3c4" : "#000000"}
-          emissiveIntensity={highlight === "lower" ? 0.35 : 0}
-        />
-      </mesh>
-      <mesh position={[0, lowerH + upperH / 2, 0]} castShadow>
-        <cylinderGeometry args={[PLAYER_RADIUS, PLAYER_RADIUS, upperH, 18]} />
-        <meshStandardMaterial
-          color={upperColor}
-          roughness={0.5}
-          emissive={highlight === "upper" ? "#fff3c4" : "#000000"}
-          emissiveIntensity={highlight === "upper" ? 0.35 : 0}
-        />
-      </mesh>
-      <mesh position={[0, PLAYER_SPLIT, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[PLAYER_RADIUS * 0.82, PLAYER_RADIUS + 0.012, 24]} />
-        <meshBasicMaterial color="#0b0b0b" />
-      </mesh>
-      <sprite position={[0, PLAYER_HEIGHT + 0.28, 0]} scale={[0.95, 0.38, 1]}>
-        <spriteMaterial map={texture} transparent depthWrite={false} />
-      </sprite>
-    </group>
-  );
-}
-
 function VolleyballModel() {
   const { scene } = useGLTF("/models/volleyball.glb");
   const { clone, scale } = useMemo(() => {
@@ -974,40 +1033,6 @@ function makeZoneNumTexture(text: string) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 128, 138);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-function makeLabelTexture(text: string, color: string, wide = false) {
-  const canvas = document.createElement("canvas");
-  const w = wide ? 384 : 256;
-  canvas.width = w;
-  canvas.height = 96;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.clearRect(0, 0, w, 96);
-    const r = 18;
-    const right = w - 8;
-    ctx.fillStyle = "rgba(12,12,20,0.78)";
-    ctx.beginPath();
-    ctx.moveTo(r, 8);
-    ctx.arcTo(right, 8, right, 88, r);
-    ctx.arcTo(right, 88, 8, 88, r);
-    ctx.arcTo(8, 88, 8, 8, r);
-    ctx.arcTo(8, 8, right, 8, r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
-    ctx.stroke();
-    ctx.fillStyle = "#f4f4f8";
-    ctx.font = `700 ${wide ? 34 : 42}px Pretendard, Apple SD Gothic Neo, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text || "·", w / 2, 50);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

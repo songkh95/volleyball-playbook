@@ -8,6 +8,9 @@ export const COURT_LINE = "#fff8f0";
 export const ACCENT = "#5ee0d0";
 export const TRAIL_GLOW = "#ccff3d";
 export const LABEL_ON_LIGHT = "#07080d";
+export const SKIN = "#d4a574";
+export const HAIR = "#2c241c";
+export const SHOE = "#1a1816";
 
 /** 예전 상대팀 기본색. team 필드 없는 기존 전술 호환. */
 export const TEAM_BLUE_LEGACY = "#1565c0";

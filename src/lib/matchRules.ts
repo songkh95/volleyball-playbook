@@ -1,3 +1,4 @@
+import type { RosterSize } from "../types/play";
 import type {
   CourtPos,
   LiveMatch,
@@ -6,23 +7,36 @@ import type {
   MatchPlayer,
   MatchSettings,
   MatchTeamId,
+  SharedRoster,
+  SharedRosterRow,
   TeamState,
 } from "../types/match";
 import { uid } from "./id";
 
 export const COURT_POS: CourtPos[] = [1, 2, 3, 4, 5, 6];
+export const COURT_POS_9: CourtPos[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 export const FRONT_POS: CourtPos[] = [2, 3, 4];
 export const BACK_POS: CourtPos[] = [1, 5, 6];
 export const SUBS_PER_SET = 6;
 export const TIMEOUTS_PER_SET = 2;
 export const TIMEOUT_SECONDS = 30;
 export const CURRENT_MATCH_ID = "live-current";
+export const SHARED_ROSTER_ID = "shared-roster";
 
 export const DEFAULT_MATCH_SETTINGS: MatchSettings = {
   timeoutSeconds: TIMEOUT_SECONDS,
   timeoutsPerSet: TIMEOUTS_PER_SET,
   subsPerSet: SUBS_PER_SET,
+  rosterSize: 6,
 };
+
+export function matchRosterSize(match: LiveMatch): RosterSize {
+  return matchSettingsOf(match).rosterSize === 9 ? 9 : 6;
+}
+
+export function positionsOf(match: LiveMatch): CourtPos[] {
+  return matchRosterSize(match) === 9 ? COURT_POS_9 : COURT_POS;
+}
 
 export function matchSettingsOf(match: LiveMatch): MatchSettings {
   return { ...DEFAULT_MATCH_SETTINGS, ...match.settings };
@@ -48,19 +62,54 @@ export function benchPlayers(team: TeamState): MatchPlayer[] {
 }
 
 export function posOf(team: TeamState, playerId: string): CourtPos | null {
-  for (const pos of COURT_POS) {
+  for (const pos of COURT_POS_9) {
     if (team.court[pos] === playerId) return pos;
   }
   return null;
 }
 
-/** 칸에 있던 선수가 사이드아웃 후 가는 자리. 1→6→5→4→3→2→1 */
-export function moveFrom(pos: CourtPos): CourtPos {
-  const next = { 1: 6, 6: 5, 5: 4, 4: 3, 3: 2, 2: 1 } as const;
-  return next[pos];
+/** 칸에 있던 선수가 사이드아웃 후 가는 자리. 1→6→5→4→3→2→1 / 9인은 1→9→… */
+export function moveFrom(pos: CourtPos, size: RosterSize = 6): CourtPos {
+  if (size === 9) {
+    const next: Record<CourtPos, CourtPos> = {
+      1: 9,
+      2: 1,
+      3: 2,
+      4: 3,
+      5: 4,
+      6: 5,
+      7: 6,
+      8: 7,
+      9: 8,
+    };
+    return next[pos];
+  }
+  const six: Record<1 | 2 | 3 | 4 | 5 | 6, CourtPos> = {
+    1: 6,
+    6: 5,
+    5: 4,
+    4: 3,
+    3: 2,
+    2: 1,
+  };
+  if (pos === 7 || pos === 8 || pos === 9) return pos;
+  return six[pos];
 }
 
 export function rotateLineup(court: Record<CourtPos, string>): Record<CourtPos, string> {
+  if (court[7] && court[8] && court[9]) {
+    return {
+      1: court[2],
+      2: court[3],
+      3: court[4],
+      4: court[5],
+      5: court[6],
+      6: court[7],
+      7: court[8],
+      8: court[9],
+      9: court[1],
+    };
+  }
   return {
     1: court[2],
     2: court[3],
@@ -68,7 +117,7 @@ export function rotateLineup(court: Record<CourtPos, string>): Record<CourtPos, 
     4: court[5],
     5: court[6],
     6: court[1],
-  };
+  } as Record<CourtPos, string>;
 }
 
 export function setPointTarget(setNo: number): number {
@@ -124,8 +173,8 @@ export function createLiveMatch(settings?: MatchSettings): LiveMatch {
     setNo: 1,
     sets: { ours: 0, opp: 0 },
     rally: { ours: 0, opp: 0 },
-    ours: defaultTeam("우리", "ours", resolved.timeoutsPerSet),
-    opp: defaultTeam("상대", "opp", resolved.timeoutsPerSet),
+    ours: defaultTeam("우리", "ours", resolved.timeoutsPerSet, resolved.rosterSize),
+    opp: defaultTeam("상대", "opp", resolved.timeoutsPerSet, resolved.rosterSize),
     log: [],
     scoreUndo: [],
     scoreRedo: [],
@@ -134,9 +183,14 @@ export function createLiveMatch(settings?: MatchSettings): LiveMatch {
   };
 }
 
-function defaultTeam(name: string, side: MatchTeamId, timeoutsPerSet: number): TeamState {
+function defaultTeam(
+  name: string,
+  side: MatchTeamId,
+  timeoutsPerSet: number,
+  rosterSize: RosterSize = 6,
+): TeamState {
   const prefix = side;
-  const rows: { pos: CourtPos; number: string; label: string; libero?: boolean }[] = [
+  const six: { pos: CourtPos; number: string; label: string; libero?: boolean }[] = [
     { pos: 1, number: side === "ours" ? "1" : "11", label: "S" },
     { pos: 2, number: side === "ours" ? "2" : "12", label: "OP" },
     { pos: 3, number: side === "ours" ? "3" : "13", label: "MB" },
@@ -144,6 +198,18 @@ function defaultTeam(name: string, side: MatchTeamId, timeoutsPerSet: number): T
     { pos: 5, number: side === "ours" ? "5" : "15", label: "OH" },
     { pos: 6, number: side === "ours" ? "6" : "16", label: "L", libero: true },
   ];
+  const nine: { pos: CourtPos; number: string; label: string; libero?: boolean }[] = [
+    { pos: 1, number: side === "ours" ? "1" : "11", label: "OH" },
+    { pos: 2, number: side === "ours" ? "2" : "12", label: "OH" },
+    { pos: 3, number: side === "ours" ? "3" : "13", label: "MB" },
+    { pos: 4, number: side === "ours" ? "4" : "14", label: "OH" },
+    { pos: 5, number: side === "ours" ? "5" : "15", label: "WS" },
+    { pos: 6, number: side === "ours" ? "6" : "16", label: "S" },
+    { pos: 7, number: side === "ours" ? "7" : "17", label: "WS" },
+    { pos: 8, number: side === "ours" ? "8" : "18", label: "MB" },
+    { pos: 9, number: side === "ours" ? "9" : "19", label: "OP" },
+  ];
+  const rows = rosterSize === 9 ? nine : six;
   const players: MatchPlayer[] = rows.map((row) => ({
     id: `${prefix}-${row.pos}`,
     number: row.number,
@@ -274,12 +340,13 @@ export function redoScore(match: LiveMatch): MatchResult {
 }
 
 function rotateTeam(team: TeamState): { team: TeamState; liberoNote: string | null } {
+  const size: RosterSize = team.court[7] && team.court[8] && team.court[9] ? 9 : 6;
   const court = rotateLineup(team.court);
   let liberoPos = team.liberoPos;
   let replacedId = team.replacedId;
   let liberoNote: string | null = null;
   if (liberoPos !== null) {
-    liberoPos = moveFrom(liberoPos);
+    liberoPos = moveFrom(liberoPos, size);
     if (FRONT_POS.includes(liberoPos) && replacedId && team.liberoId) {
       const liberoId = team.liberoId;
       court[liberoPos] = replacedId;
@@ -368,6 +435,7 @@ export function applyLibero(
   courtId: string,
   benchId: string,
 ): MatchResult {
+  if (matchRosterSize(match) === 9) return { ok: false, error: "9인제에는 리베로가 없습니다." };
   if (match.status !== "live") return { ok: false, error: "경기 중에만 교체할 수 있습니다." };
   const side = match[team];
   const courtP = playerById(side, courtId);
@@ -459,11 +527,28 @@ function resetSetExtras(team: TeamState, timeoutsPerSet: number): TeamState {
 
 export function applyMatchSettings(match: LiveMatch, nextSettings: MatchSettings): LiveMatch {
   const prev = matchSettingsOf(match);
+  const wantedSize: RosterSize = nextSettings.rosterSize === 9 ? 9 : 6;
+  const rosterSize = match.status === "warmup" ? wantedSize : prev.rosterSize;
   const settings: MatchSettings = {
     timeoutSeconds: Math.min(180, Math.max(5, Math.round(nextSettings.timeoutSeconds) || TIMEOUT_SECONDS)),
     timeoutsPerSet: Math.min(5, Math.max(1, Math.round(nextSettings.timeoutsPerSet) || TIMEOUTS_PER_SET)),
     subsPerSet: Math.min(12, Math.max(1, Math.round(nextSettings.subsPerSet) || SUBS_PER_SET)),
+    rosterSize,
   };
+  if (match.status === "warmup" && rosterSize !== prev.rosterSize) {
+    const rebuilt = createLiveMatch(settings);
+    return stamp(
+      applySharedRoster(
+        {
+          ...rebuilt,
+          createdAt: match.createdAt,
+          ours: { ...rebuilt.ours, name: match.ours.name },
+          opp: { ...rebuilt.opp, name: match.opp.name },
+        },
+        sharedRosterFromMatch(match),
+      ),
+    );
+  }
   function adjust(team: TeamState): TeamState {
     const used = Math.max(0, prev.timeoutsPerSet - team.timeoutLeft);
     return { ...team, timeoutLeft: Math.max(0, settings.timeoutsPerSet - used) };
@@ -508,7 +593,7 @@ export function addBenchPlayer(
     id: uid(),
     number,
     label: input.label.trim() || "P",
-    isLibero: Boolean(input.isLibero),
+    isLibero: matchRosterSize(match) === 9 ? false : Boolean(input.isLibero),
   };
   let liberoId = side.liberoId;
   if (player.isLibero) {
@@ -538,7 +623,7 @@ export function updatePlayer(
   if (side.players.some((p) => p.id !== playerId && p.number === number)) {
     return { ok: false, error: "같은 등번호가 있습니다." };
   }
-  const isLibero = Boolean(input.isLibero);
+  const isLibero = matchRosterSize(match) === 9 ? false : Boolean(input.isLibero);
   if (isLibero && side.liberoId && side.liberoId !== playerId) {
     return { ok: false, error: "리베로는 팀당 한 명만 둘 수 있습니다." };
   }
@@ -573,6 +658,74 @@ export function normalizeMatch(match: LiveMatch): LiveMatch {
     timeout: match.timeout ?? null,
     ours: { ...match.ours, timeoutLeft: match.ours.timeoutLeft ?? settings.timeoutsPerSet },
     opp: { ...match.opp, timeoutLeft: match.opp.timeoutLeft ?? settings.timeoutsPerSet },
+  };
+}
+
+export function rosterRowsFromTeam(team: TeamState): SharedRosterRow[] {
+  const courtIds: string[] = [];
+  for (const pos of COURT_POS_9) {
+    const id = team.court[pos];
+    if (id) courtIds.push(id);
+  }
+  const seen = new Set(courtIds);
+  const ordered = [
+    ...courtIds.map((id) => playerById(team, id)).filter((p): p is MatchPlayer => Boolean(p)),
+    ...team.players.filter((p) => !seen.has(p.id)),
+  ];
+  return ordered.map((p) => ({
+    number: p.number,
+    label: p.label,
+    isLibero: p.isLibero,
+  }));
+}
+
+export function sharedRosterFromMatch(match: LiveMatch): SharedRoster {
+  return {
+    id: SHARED_ROSTER_ID,
+    ours: rosterRowsFromTeam(match.ours),
+    opp: rosterRowsFromTeam(match.opp),
+    rosterSize: matchRosterSize(match),
+    updatedAt: Date.now(),
+  };
+}
+
+export function applyRosterRows(team: TeamState, rows: SharedRosterRow[] | undefined): TeamState {
+  if (!rows?.length) return team;
+  let i = 0;
+  const courtIds = new Set(Object.values(team.court).filter(Boolean));
+  const players = team.players.map((p) => {
+    if (!courtIds.has(p.id)) return p;
+    const row = rows[i++];
+    if (!row) return p;
+    return {
+      ...p,
+      number: row.number.trim() || p.number,
+      label: row.label.trim() || p.label,
+    };
+  });
+  const extras: MatchPlayer[] = [];
+  const usedNumbers = new Set(players.map((p) => p.number));
+  for (; i < rows.length; i++) {
+    const row = rows[i];
+    const number = row.number.trim();
+    if (!number || usedNumbers.has(number)) continue;
+    usedNumbers.add(number);
+    extras.push({
+      id: uid(),
+      number,
+      label: row.label.trim() || "P",
+      isLibero: false,
+    });
+  }
+  return { ...team, players: [...players, ...extras] };
+}
+
+export function applySharedRoster(match: LiveMatch, roster: SharedRoster | undefined): LiveMatch {
+  if (!roster) return match;
+  return {
+    ...match,
+    ours: applyRosterRows(match.ours, roster.ours),
+    opp: applyRosterRows(match.opp, roster.opp),
   };
 }
 

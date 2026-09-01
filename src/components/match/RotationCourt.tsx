@@ -1,9 +1,11 @@
 import type { CourtPos, LiveMatch, MatchTeamId, TeamState } from "../../types/match";
-import { matchSettingsOf, playerById } from "../../lib/matchRules";
+import { matchRosterSize, matchSettingsOf, playerById } from "../../lib/matchRules";
 import { PlayerSquare } from "./PlayerSquare";
 
-const OURS_GRID: CourtPos[] = [5, 4, 6, 3, 1, 2];
-const OPP_GRID: CourtPos[] = [4, 5, 3, 6, 2, 1];
+const OURS_GRID_6: CourtPos[] = [5, 4, 6, 3, 1, 2];
+const OPP_GRID_6: CourtPos[] = [4, 5, 3, 6, 2, 1];
+const OURS_GRID_9: CourtPos[] = [5, 8, 4, 6, 9, 3, 1, 7, 2];
+const OPP_GRID_9: CourtPos[] = [4, 8, 5, 3, 9, 6, 2, 7, 1];
 
 type Props = {
   match: LiveMatch;
@@ -14,13 +16,15 @@ type Props = {
 };
 
 export function RotationCourt({ match, now, selectedId, onPickCourt, onTimeout }: Props) {
+  const nine = matchRosterSize(match) === 9;
   return (
     <section className="flex w-fit max-w-full items-stretch">
       <TeamGrid
         match={match}
         now={now}
         team="ours"
-        order={OURS_GRID}
+        order={nine ? OURS_GRID_9 : OURS_GRID_6}
+        cols={nine ? 3 : 2}
         selectedId={selectedId}
         onPick={onPickCourt}
         onTimeout={() => onTimeout("ours")}
@@ -36,7 +40,8 @@ export function RotationCourt({ match, now, selectedId, onPickCourt, onTimeout }
         match={match}
         now={now}
         team="opp"
-        order={OPP_GRID}
+        order={nine ? OPP_GRID_9 : OPP_GRID_6}
+        cols={nine ? 3 : 2}
         selectedId={selectedId}
         onPick={onPickCourt}
         onTimeout={() => onTimeout("opp")}
@@ -50,6 +55,7 @@ function TeamGrid({
   now,
   team,
   order,
+  cols,
   selectedId,
   onPick,
   onTimeout,
@@ -58,6 +64,7 @@ function TeamGrid({
   now: number;
   team: MatchTeamId;
   order: CourtPos[];
+  cols: 2 | 3;
   selectedId: string | null;
   onPick: (team: MatchTeamId, playerId: string) => void;
   onTimeout: () => void;
@@ -69,17 +76,18 @@ function TeamGrid({
 
   return (
     <div className="flex flex-col">
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className={`grid gap-1.5 ${cols === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
         {order.map((pos) => (
           <Cell key={`${team}-${pos}`} match={match} team={team} pos={pos} selectedId={selectedId} onPick={onPick} />
         ))}
       </div>
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+      <div className={`mt-1.5 grid gap-1.5 ${cols === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
         {team === "ours" ? (
           <TimeoutBtn used={used} max={settings.timeoutsPerSet} active={active} onClick={onTimeout} />
         ) : (
           <span />
         )}
+        {cols === 3 ? <span /> : null}
         {team === "opp" ? (
           <TimeoutBtn used={used} max={settings.timeoutsPerSet} active={active} onClick={onTimeout} />
         ) : (

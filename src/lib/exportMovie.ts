@@ -1,8 +1,8 @@
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
 import type { CourtObject, Cut, Stroke } from "../types/play";
-import { viewAtPlayhead, type Trail } from "./interpolate";
+import { playheadFromTime, timelineDurationSec, viewAtPlayhead, type Trail } from "./interpolate";
 
-export const EXPORT_FPS = 12;
+export const EXPORT_FPS = 24;
 
 export type MovieView = {
   objects: CourtObject[];
@@ -12,17 +12,19 @@ export type MovieView = {
 
 export type VideoFormat = { mime: string; ext: "webm" | "mp4" };
 
-export function moviePlayheads(cutCount: number, fps = EXPORT_FPS): number[] {
-  if (cutCount <= 1) {
+export function moviePlayheads(cuts: Cut[], fps = EXPORT_FPS): number[] {
+  if (cuts.length <= 1) {
     return Array.from({ length: Math.max(1, fps) }, () => 0);
   }
-  const durationSec = cutCount - 1;
+  const durationSec = timelineDurationSec(cuts);
   const n = Math.max(2, Math.round(durationSec * fps) + 1);
-  return Array.from({ length: n }, (_, i) => (i / (n - 1)) * durationSec);
+  return Array.from({ length: n }, (_, i) =>
+    playheadFromTime(cuts, (i / (n - 1)) * durationSec),
+  );
 }
 
 export function movieViews(cuts: Cut[], showTrails: boolean, fps = EXPORT_FPS): MovieView[] {
-  return moviePlayheads(cuts.length, fps).map((playhead) => {
+  return moviePlayheads(cuts, fps).map((playhead) => {
     const view = viewAtPlayhead(cuts, playhead);
     return {
       objects: view.objects,

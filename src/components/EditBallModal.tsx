@@ -33,7 +33,7 @@ type Props = {
 };
 
 const HEIGHT_PRESETS: Exclude<BallHeightBand, "auto">[] = ["lower", "upper", "air"];
-const FLIGHT_PRESETS: (BallFlight | undefined)[] = [undefined, "fast", "slow"];
+const FLIGHT_PRESETS: (BallFlight | undefined)[] = [undefined, "fast", "slow", "spike"];
 
 function deg(rad: number) {
   return Math.round((((rad * 180) / Math.PI) % 360) + 360) % 360;
@@ -98,16 +98,32 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
 
   function applyBand(next: BallHeightBand) {
     setMode(next);
+    let nextFlight = flight;
+    if (next === "lower" && flight === "spike") {
+      nextFlight = undefined;
+      setFlight(undefined);
+    }
     if (next === "auto") {
-      commit(undefined, flight, currentFan());
+      commit(undefined, nextFlight, currentFan());
       return;
     }
     const nextHeight = heightForBand(next);
     setHeight(nextHeight);
-    commit(nextHeight, flight, currentFan());
+    commit(nextHeight, nextFlight, currentFan());
   }
 
   function applyFlight(next: BallFlight | undefined) {
+    if (next === "spike") {
+      const zone = mode === "auto" ? "upper" : bandFromHeight(height);
+      if (zone === "lower") {
+        const nextHeight = heightForBand("upper");
+        setMode("upper");
+        setHeight(nextHeight);
+        setFlight(next);
+        commit(nextHeight, next, currentFan());
+        return;
+      }
+    }
     setFlight(next);
     commit(heightValue(), next, currentFan());
   }
@@ -206,7 +222,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
       </div>
 
       <p className="mb-1.5 text-xs font-semibold text-white/50">이동</p>
-      <div className="mb-3 grid grid-cols-3 gap-1.5">
+      <div className="mb-3 grid grid-cols-4 gap-1.5">
         {FLIGHT_PRESETS.map((item) => (
           <button
             key={item ?? "normal"}
@@ -221,7 +237,9 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
         ))}
       </div>
       <p className="mb-5 text-[11px] leading-relaxed text-white/40">
-        {flight === "fast"
+        {flight === "spike"
+          ? "상단에서만 씁니다. 빠른 공보다 더 빠르고 궤적이 평평합니다."
+          : flight === "fast"
           ? "선수에서 선수로 빠르게 갑니다. 도착한 뒤에는 선수에 붙어 접촉을 유지합니다."
           : flight === "slow"
             ? "선수에게 갈 때 큰 포물선을 그리며 천천히 떨어집니다."

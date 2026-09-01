@@ -13,6 +13,15 @@ export type BallPose = {
   flight?: BallFlight;
 };
 
+export type MannequinPose = "idle" | "receive" | "set" | "spike";
+
+export function mannequinPoseOf(ball: BallPose | null, playerId: string): MannequinPose {
+  if (!ball || ball.playerId !== playerId || ball.zone === "air") return "idle";
+  if (ball.zone === "lower") return "receive";
+  if (ball.flight === "spike") return "spike";
+  return "set";
+}
+
 export const HEIGHT_AIR = 2.15;
 export const HEIGHT_LOWER_CONTACT = 0.5;
 export const HEIGHT_UPPER_CONTACT =
@@ -22,6 +31,7 @@ export const HEIGHT_MAX = 2.7;
 export const HEIGHT_FLIGHT_MAX = 5.4;
 
 export const FAST_ARRIVE = 0.52;
+export const SPIKE_ARRIVE = 0.34;
 
 export type BallHeightBand = "auto" | "lower" | "upper" | "air";
 
@@ -45,12 +55,14 @@ export function bandLabel(band: BallHeightBand) {
 }
 
 export function flightLabel(flight?: BallFlight | null) {
+  if (flight === "spike") return "스파이크";
   if (flight === "fast") return "빠른 공";
   if (flight === "slow") return "느린 공";
   return "보통";
 }
 
 export function flightShort(flight?: BallFlight | null) {
+  if (flight === "spike") return "스";
   if (flight === "fast") return "빠";
   if (flight === "slow") return "느";
   return null;
@@ -69,6 +81,7 @@ export function segmentFlight(
 
 export function ballTravelT(t: number, flight?: BallFlight | null) {
   const u = Math.min(1, Math.max(0, t));
+  if (flight === "spike") return Math.min(1, u / SPIKE_ARRIVE);
   if (flight === "fast") return Math.min(1, u / FAST_ARRIVE);
   return u;
 }
@@ -234,6 +247,16 @@ function peakAdd(
     }
     return extra;
   }
+  if (flight === "spike") {
+    let extra = Math.min(0.06, distM * 0.006);
+    if (crossesNet) {
+      extra = Math.max(
+        extra,
+        Math.max(0, NET_HEIGHT + BALL_CLEAR - Math.max(from.height, to.height)),
+      );
+    }
+    return extra;
+  }
   if (flight === "fast") {
     let extra = Math.min(0.18, distM * 0.018);
     if (crossesNet) {
@@ -297,7 +320,9 @@ function heightOnSegment(
     }
   }
   const arcT = flight === "slow" ? t : travelT;
-  return clampHeight(linearAt(travelT) + lift * 4 * arcT * (1 - arcT));
+  const bump = 4 * arcT * (1 - arcT);
+  const spikeFlat = flight === "spike" ? 0.35 : 1;
+  return clampHeight(linearAt(travelT) + lift * bump * spikeFlat);
 }
 
 export function interpolateBallPosition(
@@ -320,7 +345,7 @@ export function interpolateBallPosition(
   const travelT = ballTravelT(t, flight);
   let destX = to.x;
   let destY = to.y;
-  if (flight === "fast") {
+  if (flight === "fast" || flight === "spike") {
     const near = nearestPlayer(to, toObjs);
     if (near.player && near.dist <= CONTACT_NORM) {
       const contact = liveContactXY(
@@ -384,7 +409,7 @@ export function ballPoseAtPlayhead(
   const travelT = ballTravelT(t, flight);
   let destX = to.x;
   let destY = to.y;
-  if (flight === "fast") {
+  if (flight === "fast" || flight === "spike") {
     const contact = liveContactXY(cuts[i].objects, cuts[i + 1].objects, to, t);
     destX = contact.x;
     destY = contact.y;

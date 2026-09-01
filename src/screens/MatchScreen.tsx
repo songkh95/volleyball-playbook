@@ -7,7 +7,7 @@ import { PlayerEditModal, type PlayerModalKind } from "../components/match/Playe
 import { RotationCourt } from "../components/match/RotationCourt";
 import { ScoreHeader } from "../components/match/ScoreHeader";
 import { RenameModal } from "../components/RenameModal";
-import { getLiveMatch, saveLiveMatch } from "../lib/db";
+import { getLiveMatch, getSharedRoster, saveLiveMatch, saveSharedRoster } from "../lib/db";
 import {
   addBenchPlayer,
   applyLibero,
@@ -15,14 +15,18 @@ import {
   applyScore,
   applySub,
   applyTimeout,
+  applySharedRoster,
   clearTimeoutClock,
   stopTimeout,
   createLiveMatch,
+  DEFAULT_MATCH_SETTINGS,
+  matchRosterSize,
   matchSettingsOf,
   nextSet,
   normalizeMatch,
   redoScore,
   renameTeam,
+  sharedRosterFromMatch,
   undoScore,
   updatePlayer,
   type MatchResult,
@@ -48,8 +52,17 @@ export function MatchScreen() {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    void getLiveMatch().then((saved) => {
-      setMatch(saved ? normalizeMatch(saved) : createLiveMatch());
+    void Promise.all([getLiveMatch(), getSharedRoster()]).then(([saved, roster]) => {
+      if (saved) {
+        setMatch(normalizeMatch(saved));
+        return;
+      }
+      const created = createLiveMatch(
+        roster
+          ? { ...DEFAULT_MATCH_SETTINGS, rosterSize: roster.rosterSize }
+          : undefined,
+      );
+      setMatch(applySharedRoster(created, roster));
     });
   }, []);
 
@@ -57,6 +70,7 @@ export function MatchScreen() {
     if (!match) return;
     const t = window.setTimeout(() => {
       void saveLiveMatch(match);
+      void saveSharedRoster(sharedRosterFromMatch(match));
     }, 250);
     return () => window.clearTimeout(t);
   }, [match]);
@@ -103,7 +117,7 @@ export function MatchScreen() {
 
   return (
     <div className="h-full min-h-0 overflow-x-hidden overflow-y-auto bg-ink">
-      <div className="match-board w-full min-w-0 px-2">
+      <div className={`match-board w-full min-w-0 px-2 ${matchRosterSize(match) === 9 ? "match-board-9" : ""}`}>
         <div className="mx-auto flex w-fit max-w-full flex-col">
           <ScoreHeader
             match={match}
@@ -233,6 +247,7 @@ export function MatchScreen() {
         key={settingsOpen ? "settings-open" : "settings-closed"}
         open={settingsOpen}
         value={matchSettingsOf(match)}
+        canChangeRoster={match.status === "warmup"}
         onClose={() => setSettingsOpen(false)}
         onSave={(next) => {
           setMatch(applyMatchSettings(match, next));
@@ -318,7 +333,11 @@ export function MatchScreen() {
         confirmLabel="새 경기"
         onClose={() => setResetOpen(false)}
         onConfirm={() => {
-          const next = createLiveMatch(matchSettingsOf(match));
+          const settings = matchSettingsOf(match);
+          const next = applySharedRoster(
+            createLiveMatch(settings),
+            sharedRosterFromMatch(match),
+          );
           setMatch(next);
           void saveLiveMatch(next);
           setResetOpen(false);

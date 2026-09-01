@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EditPlayerModal } from "../components/EditPlayerModal";
-import { LeaveSaveModal } from "../components/LeaveSaveModal";
 import { Modal } from "../components/Modal";
 import { RenameModal } from "../components/RenameModal";
 import { savePreset } from "../lib/db";
-import { isPresetDirty } from "../lib/dirty";
 import { syncRosterPlayers } from "../lib/defaultPlay";
 import { newPlayer } from "../lib/presets";
 import type { CourtType, FormationPreset, RosterSize } from "../types/play";
@@ -21,13 +19,10 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
-  const [savedNotice, setSavedNotice] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const presetRef = useRef(preset);
   const undoRef = useRef<FormationPreset[]>([]);
-  const savedRef = useRef(structuredClone(preset));
   const persistPausedRef = useRef(false);
-  const pendingLeaveRef = useRef<(() => void) | null>(null);
   const didCleanRef = useRef(false);
   const [undoCount, setUndoCount] = useState(0);
   presetRef.current = preset;
@@ -40,7 +35,6 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
     const hadBall = current.objects.some((o) => o.kind === "ball");
     if (!hadBall && nextObjs.length === current.objects.length) return;
     const cleaned = { ...current, objects: nextObjs, updatedAt: Date.now() };
-    savedRef.current = structuredClone(cleaned);
     onChange(cleaned);
     void savePreset(cleaned);
   }, [onChange]);
@@ -48,6 +42,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
   useEffect(() => {
     if (persistPausedRef.current) return;
     const t = window.setTimeout(() => {
+      if (persistPausedRef.current) return;
       void savePreset(preset);
     }, 250);
     return () => window.clearTimeout(t);
@@ -64,45 +59,18 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
     setUndoCount(undoRef.current.length);
   }
 
-  function markSaved(next: FormationPreset = presetRef.current) {
-    savedRef.current = structuredClone(next);
-  }
-
-  function requestLeave(action: () => void) {
-    if (!isPresetDirty(presetRef.current, savedRef.current)) {
-      action();
-      return;
-    }
-    pendingLeaveRef.current = action;
-    setLeaveOpen(true);
-  }
-
-  function finishLeave() {
-    const action = pendingLeaveRef.current;
-    pendingLeaveRef.current = null;
-    setLeaveOpen(false);
-    action?.();
-  }
-
-  function leaveWithSave() {
+  function leaveNow(action: () => void) {
     persistPausedRef.current = true;
-    const current = presetRef.current;
-    markSaved(current);
-    void savePreset(current).then(finishLeave);
-  }
-
-  function leaveWithoutSave() {
-    persistPausedRef.current = true;
-    const snap = structuredClone(savedRef.current);
-    presetRef.current = snap;
-    onChange(snap);
-    void savePreset(snap).then(finishLeave);
+    void savePreset(presetRef.current)
+      .then(action)
+      .catch((err) => {
+        persistPausedRef.current = false;
+        setSavedNotice(err instanceof Error ? err.message : "저장하지 못했습니다.");
+      });
   }
 
   function saveNow() {
-    const current = presetRef.current;
-    markSaved(current);
-    void savePreset(current).then(() => setSavedNotice(true));
+    void savePreset(presetRef.current).then(() => setSavedNotice("대형을 저장했습니다."));
   }
 
   function patch(next: Partial<FormationPreset>) {
@@ -164,7 +132,7 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
         <button
           type="button"
           className="rounded-xl px-3 py-2 text-sm text-white/80 ring-1 ring-line"
-          onClick={() => requestLeave(onBack)}
+          onClick={() => leaveNow(onBack)}
         >
           뒤로
         </button>
@@ -289,21 +257,12 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
           setRenameOpen(false);
         }}
       />
-      <LeaveSaveModal
-        open={leaveOpen}
-        onCancel={() => {
-          pendingLeaveRef.current = null;
-          setLeaveOpen(false);
-        }}
-        onDiscard={leaveWithoutSave}
-        onSave={leaveWithSave}
-      />
-      <Modal open={savedNotice} title="저장" onClose={() => setSavedNotice(false)}>
-        <p className="mb-5 text-sm text-white/75">대형을 저장했습니다.</p>
+      <Modal open={Boolean(savedNotice)} title="저장" onClose={() => setSavedNotice(null)}>
+        <p className="mb-5 text-sm text-white/75">{savedNotice}</p>
         <button
           type="button"
           className="w-full rounded-xl bg-accent py-3 font-semibold text-ink"
-          onClick={() => setSavedNotice(false)}
+          onClick={() => setSavedNotice(null)}
         >
           확인
         </button>

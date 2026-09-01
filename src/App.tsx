@@ -26,6 +26,7 @@ import {
   getAlbum,
   getPlay,
   getPreset,
+  getSharedRoster,
   listAlbums,
   listCaptures,
   listCovers,
@@ -205,7 +206,12 @@ export default function App() {
     rosterSize: RosterSize;
   }) {
     if (!creatingAlbumId) return;
-    const play = createPlay({ ...input, albumId: creatingAlbumId });
+    const roster = await getSharedRoster();
+    const play = createPlay({
+      ...input,
+      albumId: creatingAlbumId,
+      roster: roster?.ours,
+    });
     await savePlay(play);
     await refresh();
     setCreateOpen(false);

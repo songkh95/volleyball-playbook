@@ -57,25 +57,26 @@ function player(
 }
 
 export function defaultObjects(rosterSize: RosterSize, court: CourtType): CourtObject[] {
-  const netY = court === "full" ? 9 / 18 : 9 / 12;
-  const back = netY * 0.22;
-  const mid = netY * 0.55;
-  const front = netY * 0.82;
+  const netY = netYNorm(court);
+  const back = netY * 0.28;
+  const mid = netY * 0.52;
+  const front = netY * 0.84;
 
+  /** 5-1 R1: P1 S, P2 OP, P3 MB, P4 OH, P5 OH, P6 L */
   const six: CourtObject[] = [
-    player(0.5, back + 0.02, "L"),
-    player(0.2, back + 0.08, "OH"),
-    player(0.8, back + 0.08, "OH"),
-    player(0.32, mid, "MB"),
-    player(0.68, mid, "OP"),
-    player(0.78, front, "S"),
+    player(0.82, back, "S"),
+    player(0.82, front, "OP"),
+    player(0.5, front, "MB"),
+    player(0.18, front, "OH"),
+    player(0.18, back, "OH"),
+    player(0.5, back, "L"),
   ];
 
   if (rosterSize === 9) {
     six.push(
-      player(0.5, mid * 0.85, "MB"),
-      player(0.12, mid, "WS"),
-      player(0.88, mid, "WS"),
+      player(0.18, mid, "WS"),
+      player(0.5, mid, "MB"),
+      player(0.82, mid, "WS"),
     );
   }
 
@@ -128,13 +129,30 @@ export function alignToDefault(
   });
 }
 
+export function applyRosterLabels(
+  objects: CourtObject[],
+  roster: { number: string; label: string }[],
+): CourtObject[] {
+  let i = 0;
+  return objects.map((o) => {
+    if (o.kind !== "player" || o.team === "opp") return o;
+    const row = roster[i++];
+    if (!row) return o;
+    const label = [row.number, row.label].filter(Boolean).join(" ").trim() || o.label;
+    return { ...o, label };
+  });
+}
+
 export function createPlay(input: {
   title: string;
   court: CourtType;
   rosterSize: RosterSize;
   albumId: string;
+  roster?: { number: string; label: string }[];
 }): Play {
   const now = Date.now();
+  let objects = defaultObjects(input.rosterSize, input.court);
+  if (input.roster?.length) objects = applyRosterLabels(objects, input.roster);
   return {
     id: uid(),
     albumId: input.albumId,
@@ -148,7 +166,7 @@ export function createPlay(input: {
         id: uid(),
         name: "장면 1",
         durationMs: 1000,
-        objects: defaultObjects(input.rosterSize, input.court),
+        objects,
         strokes: [],
       },
     ],

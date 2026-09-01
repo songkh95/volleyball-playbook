@@ -1,8 +1,8 @@
-import type { LiveMatch } from "../types/match";
+import type { LiveMatch, SharedRoster } from "../types/match";
 import type { Album, FormationPreset, GalleryCapture, Play } from "../types/play";
 import { BUILTIN_PRESET_ORDER, builtinFormations } from "./formations";
 import { uid } from "./id";
-import { CURRENT_MATCH_ID } from "./matchRules";
+import { CURRENT_MATCH_ID, SHARED_ROSTER_ID } from "./matchRules";
 
 export type CoverRecord = {
   id: string;
@@ -207,10 +207,8 @@ async function runMigration(): Promise<void> {
     }
   }
 
-  const existing = await listPresets();
-  const have = new Set(existing.map((p) => p.id));
   for (const preset of builtinFormations()) {
-    if (!have.has(preset.id)) await savePreset(preset);
+    await savePreset(preset);
   }
 
   migrated = true;
@@ -328,6 +326,14 @@ export function getLiveMatch() {
 
 export function saveLiveMatch(match: LiveMatch) {
   return putOne("matches", { ...match, id: CURRENT_MATCH_ID });
+}
+
+export function getSharedRoster() {
+  return getOne<SharedRoster>("matches", SHARED_ROSTER_ID);
+}
+
+export function saveSharedRoster(roster: SharedRoster) {
+  return putOne("matches", { ...roster, id: SHARED_ROSTER_ID, updatedAt: Date.now() });
 }
 
 export async function replaceAll(data: {

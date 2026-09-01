@@ -25,6 +25,10 @@
   --match-sq: min(5.5rem, calc((100cqi - 1.5rem - 0.75rem) / 4));
 }
 
+.match-board-9 {
+  --match-sq: min(4.2rem, calc((100cqi - 1.5rem - 1rem) / 6));
+}
+
 html,
 body,
 #root {
