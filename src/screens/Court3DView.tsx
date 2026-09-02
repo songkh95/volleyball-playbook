@@ -1,5 +1,5 @@
 import { OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   forwardRef,
   Suspense,
@@ -14,10 +14,8 @@ import {
 import { flushSync } from "react-dom";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import {
-  ballPoseAtPlayhead,
-  type BallPose,
-} from "../lib/ballFlight";
+import { ballPoseAtPlayhead, type BallPose } from "../lib/ballFlight";
+import { playerActionPose } from "../lib/playerPose";
 import {
   BALL_RADIUS,
   courtToWorld,
@@ -34,12 +32,13 @@ import {
 } from "../lib/court3d";
 import { COURT_FILL } from "../design/tokens";
 import { courtMeters } from "../lib/defaultPlay";
-import { coverageRadius, defaultCoverageOn } from "../lib/inspect";
+import { coverageRadius, defaultCoverageOn, isOpponent } from "../lib/inspect";
 import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
 import { yieldToUi } from "../lib/exportMovie";
 import { viewAtPlayhead, type Trail } from "../lib/interpolate";
 import type { CourtObject, CourtType, Cut, Stroke, ZoneMode } from "../types/play";
 import { zoneCells } from "../lib/zones";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 const EXPORT_WIDTH = 480;
 
@@ -118,10 +117,11 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
   const pose = getCameraPose(props.cameraPreset, props.court);
 
   return (
-    <div className="h-full w-full">
+    <div className="absolute inset-0" style={{ background: "#5d6774" }}>
       <Canvas
-        className="h-full w-full touch-none"
+        className="absolute inset-0 h-full w-full touch-none"
         style={{ width: "100%", height: "100%", display: "block" }}
+        resize={{ debounce: 0, scroll: false }}
         gl={{
           antialias: true,
           alpha: false,
@@ -135,11 +135,13 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
           far: 120,
           position: [pose.position.x, pose.position.y, pose.position.z],
         }}
-        onCreated={({ gl, scene, camera }) => {
+        onCreated={({ gl, scene, camera, size }) => {
           gl.setClearColor("#5d6774", 1);
           scene.background = new THREE.Color("#5d6774");
+          if (size.width > 8 && size.height > 8) gl.setSize(size.width, size.height, false);
           camera.up.set(0, 1, 0);
           camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+          gl.render(scene, camera);
         }}
       >
         <CaptureBridge apiRef={apiRef} />
@@ -150,8 +152,12 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
 });
 
 function CaptureBridge({ apiRef }: { apiRef: MutableRefObject<ThreeApi | null> }) {
-  const { gl, scene, camera } = useThree();
+  const { gl, scene, camera, invalidate } = useThree();
   apiRef.current = { gl, scene, camera };
+  useLayoutEffect(() => {
+    gl.setClearColor("#5d6774", 1);
+    invalidate();
+  }, [gl, invalidate]);
   return null;
 }
 
@@ -233,7 +239,7 @@ function Scene(props: Props) {
 
   return (
     <>
-      <color attach="background" args={["#121820"]} />
+      <color attach="background" args={["#5d6774"]} />
       <hemisphereLight args={["#f2f4f8", "#8a7a62", 1.05]} />
       <ambientLight intensity={0.72} />
       <directionalLight position={[8, 18, 10]} intensity={1.75} />
@@ -275,11 +281,17 @@ function Scene(props: Props) {
               beginDrag(o.id);
             }}
           >
-            <PlayerCylinder
+            <PlayerFigure
               obj={o}
               court={props.court}
               highlight={
                 ball?.playerId === o.id && ball.zone !== "air" ? ball.zone : null
+              }
+              action={
+                (() => {
+                  const pose = playerActionPose(props.cuts, props.playhead, o.id);
+                  return pose === "spike" || pose === "receive" ? pose : null;
+                })()
               }
             />
           </group>
@@ -400,14 +412,35 @@ function ViewControls({
 }) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const pose = getCameraPose(preset, court);
+  const { camera, invalidate } = useThree();
+  const poseKey = `${preset}:${court}:${nonce}`;
+  const appliedKey = useRef("");
+
+  const applyPose = () => {
+    const c = controlsRef.current;
+    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+    if (c) {
+      c.object.position.copy(camera.position);
+      c.target.set(pose.target.x, pose.target.y, pose.target.z);
+      c.update();
+    }
+    invalidate();
+  };
 
   useLayoutEffect(() => {
-    const c = controlsRef.current;
-    if (!c) return;
-    c.object.position.set(pose.position.x, pose.position.y, pose.position.z);
-    c.target.set(pose.target.x, pose.target.y, pose.target.z);
-    c.update();
+    appliedKey.current = "";
+    applyPose();
+    const id = requestAnimationFrame(applyPose);
+    return () => cancelAnimationFrame(id);
   }, [preset, court, nonce, pose.position.x, pose.position.y, pose.position.z, pose.target.x, pose.target.y, pose.target.z]);
+
+  useFrame(() => {
+    if (appliedKey.current === poseKey) return;
+    applyPose();
+    if (controlsRef.current) appliedKey.current = poseKey;
+  });
 
   return (
     <>
@@ -893,27 +926,124 @@ function BoardText({ obj, court }: { obj: CourtObject; court: CourtType }) {
   );
 }
 
-function PlayerCylinder({
+function PlayerLabel({
+  label,
+  color,
+  y,
+}: {
+  label: string;
+  color: string;
+  y: number;
+}) {
+  const texture = useMemo(() => makeLabelTexture(label.slice(0, 4), color), [label, color]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  return (
+    <sprite position={[0, y, 0]} scale={[0.95, 0.38, 1]}>
+      <spriteMaterial map={texture} transparent depthWrite={false} />
+    </sprite>
+  );
+}
+
+const SPIKE_GLB = "/models/player-spike.glb";
+const RECEIVE_GLB = "/models/player-receive.glb";
+/** Mixamo는 +Z가 앞. 우리 엔드가 +Z라서 우리 선수는 네트(-Z)를 보게 π. */
+const SPIKE_FACE_OURS = Math.PI;
+const SPIKE_FACE_OPP = 0;
+const POSE_LABEL_Y: Record<"spike" | "receive", number> = {
+  spike: 2.42,
+  receive: 1.58,
+};
+/** 물리 반경은 그대로 두고, 3D 공만 절반 크기로 그린다. */
+const BALL_VISUAL_RADIUS = BALL_RADIUS * 0.5;
+
+function applyPlayerTint(root: THREE.Object3D, color: string) {
+  root.traverse((obj) => {
+    const name = obj.name.toLowerCase();
+    if (
+      obj.type.includes("Light") ||
+      obj.type.includes("Camera") ||
+      name.includes("ico") ||
+      name === "sphere"
+    ) {
+      obj.visible = false;
+      return;
+    }
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    const src = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const next = src.map((m) => {
+      const mat = (m as THREE.MeshStandardMaterial).clone();
+      const matName = (m?.name ?? "").toLowerCase();
+      if (matName.includes("jersey") || matName.includes("body")) {
+        mat.color = new THREE.Color(color);
+      } else if (matName.includes("shorts") || matName.includes("joint")) {
+        mat.color = new THREE.Color(shadeHex(color, -0.32));
+      }
+      return mat;
+    });
+    mesh.material = Array.isArray(mesh.material) ? next : next[0];
+  });
+}
+
+function PlayerPoseModel({ url, color }: { url: string; color: string }) {
+  const { scene } = useGLTF(url);
+  const root = useMemo(() => {
+    const cloned = cloneSkinned(scene);
+    applyPlayerTint(cloned, color);
+    return cloned;
+  }, [scene, color]);
+  return <primitive object={root} />;
+}
+
+useGLTF.preload(SPIKE_GLB);
+useGLTF.preload(RECEIVE_GLB);
+
+function PlayerFigure({
   obj,
   court,
   highlight,
+  action,
 }: {
   obj: CourtObject;
   court: CourtType;
   highlight: "upper" | "lower" | null;
+  action: "spike" | "receive" | null;
 }) {
   const { x, z } = courtToWorld(obj.x, obj.y, court);
+  const yaw = isOpponent(obj) ? SPIKE_FACE_OPP : SPIKE_FACE_OURS;
+  if (action === "spike" || action === "receive") {
+    const url = action === "spike" ? SPIKE_GLB : RECEIVE_GLB;
+    return (
+      <group position={[x, 0, z]} rotation={[0, yaw, 0]}>
+        <Suspense
+          fallback={
+            <PlayerCylinderBody obj={obj} highlight={highlight} />
+          }
+        >
+          <PlayerPoseModel url={url} color={obj.color} />
+        </Suspense>
+        <PlayerLabel label={obj.label} color={obj.color} y={POSE_LABEL_Y[action]} />
+      </group>
+    );
+  }
+  return <PlayerCylinder obj={obj} court={court} highlight={highlight} />;
+}
+
+function PlayerCylinderBody({
+  obj,
+  highlight,
+}: {
+  obj: CourtObject;
+  highlight: "upper" | "lower" | null;
+}) {
   const lowerH = PLAYER_SPLIT;
   const upperH = PLAYER_HEIGHT - PLAYER_SPLIT;
   const lowerColor = shadeHex(obj.color, -0.32);
   const upperColor = shadeHex(obj.color, 0.1);
-  const label = obj.label.slice(0, 4);
-  const texture = useMemo(() => makeLabelTexture(label, obj.color), [label, obj.color]);
-
-  useEffect(() => () => texture.dispose(), [texture]);
-
   return (
-    <group position={[x, 0, z]}>
+    <group>
       <mesh position={[0, lowerH / 2, 0]} castShadow>
         <cylinderGeometry args={[PLAYER_RADIUS, PLAYER_RADIUS, lowerH, 18]} />
         <meshStandardMaterial
@@ -936,9 +1066,24 @@ function PlayerCylinder({
         <ringGeometry args={[PLAYER_RADIUS * 0.82, PLAYER_RADIUS + 0.012, 24]} />
         <meshBasicMaterial color="#0b0b0b" />
       </mesh>
-      <sprite position={[0, PLAYER_HEIGHT + 0.28, 0]} scale={[0.95, 0.38, 1]}>
-        <spriteMaterial map={texture} transparent depthWrite={false} />
-      </sprite>
+    </group>
+  );
+}
+
+function PlayerCylinder({
+  obj,
+  court,
+  highlight,
+}: {
+  obj: CourtObject;
+  court: CourtType;
+  highlight: "upper" | "lower" | null;
+}) {
+  const { x, z } = courtToWorld(obj.x, obj.y, court);
+  return (
+    <group position={[x, 0, z]}>
+      <PlayerCylinderBody obj={obj} highlight={highlight} />
+      <PlayerLabel label={obj.label} color={obj.color} y={PLAYER_HEIGHT + 0.28} />
     </group>
   );
 }
@@ -959,7 +1104,7 @@ function VolleyballModel() {
     const maxDim = Math.max(size.x, size.y, size.z, 1e-6);
     const center = box.getCenter(new THREE.Vector3());
     clone.position.sub(center);
-    return { clone, scale: (BALL_RADIUS * 2) / maxDim };
+    return { clone, scale: (BALL_VISUAL_RADIUS * 2) / maxDim };
   }, [scene]);
   return <primitive object={clone} scale={scale} />;
 }
@@ -985,7 +1130,7 @@ function Ball({
         <Suspense
           fallback={
             <mesh castShadow>
-              <sphereGeometry args={[BALL_RADIUS, 24, 16]} />
+              <sphereGeometry args={[BALL_VISUAL_RADIUS, 24, 16]} />
               <meshStandardMaterial color="#ffd54f" roughness={0.32} metalness={0.08} />
             </mesh>
           }

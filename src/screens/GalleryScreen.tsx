@@ -3,6 +3,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { Modal } from "../components/Modal";
 import { downloadBlob, fileSafeName } from "../lib/capture";
 import { CoverImg } from "../components/CoverSlot";
+import { registerBackHandler } from "../lib/backHandlers";
 import { sceneLabel } from "../lib/defaultPlay";
 import type { Album, GalleryCapture, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
@@ -18,6 +19,8 @@ type Props = {
   plays: Play[];
   captures: GalleryCapture[];
   covers: Record<string, Blob>;
+  openFolderPlayId?: string;
+  onLeaveGallery: () => void;
   onOpenAlbum: (id: string) => void;
   onOpenPlay: (id: string) => void;
   onDeleteCapture: (id: string) => void;
@@ -28,15 +31,40 @@ export function GalleryScreen({
   plays,
   captures,
   covers,
+  openFolderPlayId,
+  onLeaveGallery,
   onOpenAlbum,
   onOpenPlay,
   onDeleteCapture,
 }: Props) {
-  const [folderPlayId, setFolderPlayId] = useState<string | null>(null);
+  const [folderPlayId, setFolderPlayId] = useState<string | null>(openFolderPlayId ?? null);
   const [viewing, setViewing] = useState<GalleryCapture | null>(null);
   const [pendingDelete, setPendingDelete] = useState<GalleryCapture | null>(null);
   const [capturesOpen, setCapturesOpen] = useState(true);
   const [openAlbums, setOpenAlbums] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setFolderPlayId(openFolderPlayId ?? null);
+  }, [openFolderPlayId]);
+
+  useEffect(() => {
+    return registerBackHandler(() => {
+      if (viewing) {
+        setViewing(null);
+        return true;
+      }
+      if (pendingDelete) {
+        setPendingDelete(null);
+        return true;
+      }
+      if (folderPlayId) {
+        setFolderPlayId(null);
+        return true;
+      }
+      onLeaveGallery();
+      return true;
+    });
+  }, [folderPlayId, onLeaveGallery, pendingDelete, viewing]);
 
   const folders = useMemo(() => {
     const map = new Map<string, Folder>();

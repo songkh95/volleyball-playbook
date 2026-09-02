@@ -7,11 +7,13 @@ import { ImportBackupModal } from "./components/ImportBackupModal";
 import { Modal } from "./components/Modal";
 import { RenameModal } from "./components/RenameModal";
 import {
+  backupHasContent,
   downloadBackup,
   parseBackup,
   withFreshIds,
   type BackupBundle,
 } from "./lib/backup";
+import { handleBack, registerBackHandler } from "./lib/backHandlers";
 import { createAlbum, createPlay, createPreset } from "./lib/defaultPlay";
 import { isBuiltinPreset } from "./lib/formations";
 import { readTextFromUri } from "./lib/readUri";
@@ -24,6 +26,7 @@ import {
   deletePreset,
   ensureMigrated,
   getAlbum,
+  getLiveMatch,
   getPlay,
   getPreset,
   getSharedRoster,
@@ -56,7 +59,7 @@ import type {
 
 type Tab = "home" | "gallery" | "match";
 type Route =
-  | { name: "main"; tab: Tab }
+  | { name: "main"; tab: Tab; folderPlayId?: string }
   | { name: "album"; albumId: string; tab: Tab }
   | { name: "editor"; playId: string; back: Exclude<Route, { name: "editor" }> }
   | { name: "preset-editor"; presetId: string; back?: Exclude<Route, { name: "preset-editor" }> };
@@ -67,6 +70,12 @@ type PendingDelete =
   | { kind: "preset"; preset: FormationPreset };
 
 type PendingRename = { kind: "album"; album: Album } | { kind: "play"; play: Play };
+
+function isRouteState(value: unknown): value is Route {
+  if (!value || typeof value !== "object" || !("name" in value)) return false;
+  const name = (value as { name: string }).name;
+  return name === "main" || name === "album" || name === "editor" || name === "preset-editor";
+}
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ name: "main", tab: "home" });
@@ -85,7 +94,23 @@ export default function App() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [importPending, setImportPending] = useState<BackupBundle | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [matchEpoch, setMatchEpoch] = useState(0);
+  const [booted, setBooted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const goTo = useCallback((next: Route, mode: "push" | "replace" = "push") => {
+    setRoute(next);
+    if (mode === "replace") window.history.replaceState({ route: next }, "");
+    else window.history.pushState({ route: next }, "");
+  }, []);
+
+  const popScreen = useCallback(() => {
+    if (isRouteState(window.history.state?.route) && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    goTo({ name: "main", tab: "home" }, "replace");
+  }, [goTo]);
 
   const refresh = useCallback(async () => {
     await ensureMigrated();
@@ -101,11 +126,48 @@ export default function App() {
     setPresets(nextPresets);
     setCaptures(nextCaptures);
     setCovers(Object.fromEntries(nextCovers.map((c) => [c.id, c.blob])));
+    setBooted(true);
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    window.history.replaceState({ route: { name: "main", tab: "home" } }, "");
+    function onPop(event: PopStateEvent) {
+      const next = event.state?.route;
+      if (isRouteState(next)) setRoute(next);
+      else setRoute({ name: "main", tab: "home" });
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    return registerBackHandler(() => {
+      if (route.name === "main" && route.tab === "gallery") return false;
+      if (route.name === "main" && route.tab !== "home") {
+        goTo({ name: "main", tab: "home" }, "replace");
+        return true;
+      }
+      return false;
+    });
+  }, [goTo, route]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: { remove: () => Promise<void> } | undefined;
+    void CapApp.addListener("backButton", () => {
+      if (handleBack()) return;
+      void CapApp.exitApp();
+    }).then((h) => {
+      handle = h;
+    });
+    return () => {
+      void handle?.remove();
+    };
+  }, []);
 
   async function handleCoverChange(id: string, kind: "album" | "play", blob: Blob | null) {
     if (blob) {
@@ -129,9 +191,9 @@ export default function App() {
     }
     void getPlay(route.playId).then((play) => {
       if (play) setEditorPlay(play);
-      else setRoute(route.back);
+      else popScreen();
     });
-  }, [route]);
+  }, [popScreen, route]);
 
   useEffect(() => {
     if (route.name !== "preset-editor") {
@@ -140,9 +202,9 @@ export default function App() {
     }
     void getPreset(route.presetId).then((preset) => {
       if (preset) setEditorPreset(preset);
-      else setRoute({ name: "main", tab: "home" });
+      else goTo({ name: "main", tab: "home" }, "replace");
     });
-  }, [route]);
+  }, [goTo, route]);
 
   useEffect(() => {
     if (route.name !== "album") {
@@ -151,18 +213,13 @@ export default function App() {
     }
     void getAlbum(route.albumId).then((next) => {
       if (next) setAlbum(next);
-      else setRoute({ name: "main", tab: route.tab });
+      else goTo({ name: "main", tab: route.tab }, "replace");
     });
-  }, [route]);
+  }, [goTo, route]);
 
   const ingestBackupText = useCallback((text: string) => {
     try {
-      const next = parseBackup(text);
-      if (next.plays.length === 0 && next.presets.length === 0) {
-        setNotice("파일에 전술이나 대형이 없습니다.");
-        return;
-      }
-      setImportPending(next);
+      setImportPending(parseBackup(text));
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "불러오기에 실패했습니다.");
     }
@@ -217,7 +274,7 @@ export default function App() {
     setCreateOpen(false);
     setCreateForAlbumId(null);
     const backTab = route.name === "album" ? route.tab : "home";
-    setRoute({
+    goTo({
       name: "editor",
       playId: play.id,
       back: { name: "album", albumId: creatingAlbumId, tab: backTab },
@@ -231,12 +288,12 @@ export default function App() {
       if (target.kind === "play") {
         await deletePlay(target.play.id);
         if (route.name === "editor" && route.playId === target.play.id) {
-          setRoute(route.back);
+          popScreen();
         }
       } else if (target.kind === "album") {
         await deleteAlbum(target.album.id);
         if (route.name === "album" && route.albumId === target.album.id) {
-          setRoute({ name: "main", tab: route.tab });
+          goTo({ name: "main", tab: route.tab }, "replace");
         }
       } else if (!isBuiltinPreset(target.preset)) {
         await deletePreset(target.preset.id);
@@ -257,6 +314,17 @@ export default function App() {
     return next.id;
   }
 
+  async function handleBackupSave() {
+    const [match, roster] = await Promise.all([getLiveMatch(), getSharedRoster()]);
+    const bundle = { plays, albums, presets, match, roster };
+    if (!backupHasContent(bundle)) {
+      setNotice("저장할 내용이 없습니다.");
+      return;
+    }
+    downloadBackup(bundle);
+    setNotice("백업 파일(.vpb)을 저장했습니다. 앱을 지우기 전에 이 파일을 보관하세요.");
+  }
+
   const showNav = route.name === "main" || route.name === "album";
   const activeTab = route.name === "main" || route.name === "album" ? route.tab : "home";
   const isHomeMain = route.name === "main" && route.tab === "home";
@@ -270,8 +338,11 @@ export default function App() {
         onClose={() => setImportPending(null)}
         onAdd={() => {
           if (!importPending) return;
-          void addImported(withFreshIds(importPending)).then(async () => {
+          const bundle = withFreshIds(importPending);
+          const hasMatch = Boolean(bundle.match || bundle.roster);
+          void addImported(bundle).then(async () => {
             setImportPending(null);
+            if (hasMatch) setMatchEpoch((n) => n + 1);
             await refresh();
           });
         }}
@@ -279,6 +350,7 @@ export default function App() {
           if (!importPending) return;
           void replaceAll(importPending).then(async () => {
             setImportPending(null);
+            setMatchEpoch((n) => n + 1);
             await refresh();
           });
         }}
@@ -312,22 +384,23 @@ export default function App() {
           onChange={setEditorPlay}
           onBack={() => {
             void refresh();
-            setRoute(route.back);
+            popScreen();
           }}
           onOpenPlay={(id) => {
             const next = plays.find((p) => p.id === id);
             if (next) setEditorPlay(next);
             void refresh();
-            setRoute({ ...route, playId: id });
+            goTo({ ...route, playId: id }, "replace");
           }}
-          onSavedToGallery={(albumId) => {
-            void refresh();
-            setRoute({ name: "album", albumId, tab: "gallery" });
+          onSavedToGallery={(_albumId, playId) => {
+            void refresh().then(() => {
+              goTo({ name: "main", tab: "gallery", folderPlayId: playId }, "replace");
+            });
           }}
           onSaveAndNew={(_saved, next) => {
             void refresh();
             setEditorPlay(next);
-            setRoute({ ...route, playId: next.id });
+            goTo({ ...route, playId: next.id }, "replace");
           }}
           onCreateAlbum={handleCreateAlbum}
           onCreateFormation={(fromPlay) => {
@@ -337,7 +410,7 @@ export default function App() {
             });
             void savePreset(preset).then(async () => {
               await refresh();
-              setRoute({
+              goTo({
                 name: "preset-editor",
                 presetId: preset.id,
                 back:
@@ -365,7 +438,7 @@ export default function App() {
           onChange={setEditorPreset}
           onBack={() => {
             void refresh();
-            setRoute(route.back ?? { name: "main", tab: "home" });
+            popScreen();
           }}
         />
         {backupOverlays}
@@ -397,14 +470,14 @@ export default function App() {
               album={album}
               plays={plays.filter((p) => p.albumId === album.id)}
               covers={covers}
-              onBack={() => setRoute({ name: "main", tab: route.tab })}
+              onBack={popScreen}
               onRename={() => setPendingRename({ kind: "album", album })}
               onNewPlay={() => {
                 setCreateForAlbumId(album.id);
                 setCreateOpen(true);
               }}
               onOpenPlay={(id) =>
-                setRoute({
+                goTo({
                   name: "editor",
                   playId: id,
                   back: { name: "album", albumId: album.id, tab: route.tab },
@@ -424,7 +497,7 @@ export default function App() {
             plays={plays}
             covers={covers}
             onNewAlbum={() => setCreateAlbumOpen(true)}
-            onOpenAlbum={(id) => setRoute({ name: "album", albumId: id, tab: "home" })}
+            onOpenAlbum={(id) => goTo({ name: "album", albumId: id, tab: "home" })}
             onRenameAlbum={(a) => setPendingRename({ kind: "album", album: a })}
             onDeleteAlbum={(a) => setPendingDelete({ kind: "album", album: a })}
             onCoverChange={(id, kind, blob) => void handleCoverChange(id, kind, blob)}
@@ -432,35 +505,29 @@ export default function App() {
               const preset = createPreset();
               void savePreset(preset).then(async () => {
                 await refresh();
-                setRoute({ name: "preset-editor", presetId: preset.id });
+                goTo({ name: "preset-editor", presetId: preset.id });
               });
             }}
-            onOpenPreset={(id) => setRoute({ name: "preset-editor", presetId: id })}
+            onOpenPreset={(id) => goTo({ name: "preset-editor", presetId: id })}
             onDeletePreset={(preset) => setPendingDelete({ kind: "preset", preset })}
-            onBackup={() => {
-              if (plays.length === 0 && presets.length === 0 && albums.length === 0) {
-                setNotice("저장할 내용이 없습니다.");
-                return;
-              }
-              downloadBackup({ plays, albums, presets });
-              setNotice(
-                "백업 파일(.vpb)을 저장했습니다. 앱을 지우기 전에 이 파일을 보관하세요.",
-              );
-            }}
+            onBackup={() => void handleBackupSave()}
             onRestore={() => fileRef.current?.click()}
+            ready={booted}
           />
         ) : route.name === "main" && route.tab === "match" ? (
-          <MatchScreen />
+          <MatchScreen key={matchEpoch} />
         ) : (
           <GalleryScreen
             albums={albums}
             plays={plays}
             captures={captures}
             covers={covers}
-            onOpenAlbum={(id) => setRoute({ name: "album", albumId: id, tab: "gallery" })}
+            openFolderPlayId={route.name === "main" ? route.folderPlayId : undefined}
+            onLeaveGallery={() => goTo({ name: "main", tab: "home" }, "replace")}
+            onOpenAlbum={(id) => goTo({ name: "album", albumId: id, tab: "gallery" })}
             onOpenPlay={(id) => {
               const play = plays.find((p) => p.id === id);
-              setRoute({
+              goTo({
                 name: "editor",
                 playId: id,
                 back: play
@@ -479,7 +546,7 @@ export default function App() {
         <nav className="grid grid-cols-3 gap-2 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
           <TabButton
             active={activeTab === "home"}
-            onClick={() => setRoute({ name: "main", tab: "home" })}
+            onClick={() => goTo({ name: "main", tab: "home" }, "replace")}
           >
             홈
           </TabButton>
@@ -487,14 +554,14 @@ export default function App() {
             active={activeTab === "gallery"}
             onClick={() => {
               void refresh();
-              setRoute({ name: "main", tab: "gallery" });
+              goTo({ name: "main", tab: "gallery" }, "replace");
             }}
           >
             갤러리
           </TabButton>
           <TabButton
             active={activeTab === "match"}
-            onClick={() => setRoute({ name: "main", tab: "match" })}
+            onClick={() => goTo({ name: "main", tab: "match" }, "replace")}
           >
             기록
           </TabButton>
@@ -504,7 +571,7 @@ export default function App() {
       <input
         ref={fileRef}
         type="file"
-        accept=".vpb,.json,application/json"
+        accept=".vpb,application/vnd.volleyball.playbook,.json,application/json"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -534,7 +601,7 @@ export default function App() {
         onSubmit={(title) => {
           void handleCreateAlbum(title).then((id) => {
             setCreateAlbumOpen(false);
-            setRoute({ name: "album", albumId: id, tab: "home" });
+            goTo({ name: "album", albumId: id, tab: "home" });
           });
         }}
       />

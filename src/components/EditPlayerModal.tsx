@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { LABEL_ON_LIGHT } from "../design/tokens";
 import { isLightColor, PLAYER_COLORS } from "../lib/colors";
 import { COVERAGE_DEFAULT, COVERAGE_MAX, COVERAGE_MIN, defaultCoverageOn, playerTeam } from "../lib/inspect";
-import { TEAM_BLUE, TEAM_RED, type CourtObject, type PlayerTeam } from "../types/play";
+import { PLAYER_POSES, poseLabel } from "../lib/playerPose";
+import { TEAM_BLUE, TEAM_RED, type CourtObject, type PlayerPose, type PlayerTeam } from "../types/play";
 import { Modal } from "./Modal";
 
 type Props = {
   object: CourtObject | null;
+  activePose?: PlayerPose;
   onClose: () => void;
   onSave: (patch: {
     label: string;
@@ -15,15 +17,26 @@ type Props = {
     coverageOn: boolean;
     coverageM: number;
   }) => void;
+  onSetPose?: (pose: PlayerPose, fromPrevious: boolean) => void;
+  hasPreviousCut?: boolean;
   onDelete: () => void;
 };
 
-export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
+export function EditPlayerModal({
+  object,
+  activePose = "idle",
+  onClose,
+  onSave,
+  onSetPose,
+  hasPreviousCut = false,
+  onDelete,
+}: Props) {
   const [team, setTeam] = useState<PlayerTeam>("ours");
   const [label, setLabel] = useState("");
   const [color, setColor] = useState(TEAM_RED);
   const [coverageOn, setCoverageOn] = useState(false);
   const [coverageM, setCoverageM] = useState(COVERAGE_DEFAULT);
+  const [fromPrevious, setFromPrevious] = useState(true);
 
   useEffect(() => {
     if (!object) return;
@@ -32,6 +45,7 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
     setColor(object.color);
     setCoverageOn(defaultCoverageOn(object));
     setCoverageM(object.coverageM ?? COVERAGE_DEFAULT);
+    setFromPrevious(true);
   }, [object]);
 
   if (!object || object.kind !== "player") return null;
@@ -96,6 +110,61 @@ export function EditPlayerModal({ object, onClose, onSave, onDelete }: Props) {
           </button>
         ))}
       </div>
+
+      {onSetPose ? (
+        <>
+          <p className="mb-1.5 text-xs font-semibold text-white/50">자세</p>
+          <p className="mb-2 text-[11px] leading-relaxed text-white/40">
+            리시브·토스·스파이크 모두 같습니다. 이전부터는 바로 앞 장면 시작부터 이
+            장면이 끝날 때까지, 이 장면만은 이 장면 시작부터 끝날 때까지 자세를
+            유지합니다.
+          </p>
+          <div className="mb-3 grid grid-cols-4 gap-1.5">
+            {PLAYER_POSES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={`rounded-xl py-2.5 text-xs font-semibold ${
+                  activePose === item ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+                }`}
+                onClick={() => onSetPose(item, fromPrevious && hasPreviousCut)}
+              >
+                {poseLabel(item)}
+              </button>
+            ))}
+          </div>
+          <p className="mb-1.5 text-xs font-semibold text-white/50">이전 장면부터 진행</p>
+          <div className="mb-5 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              className={`rounded-xl py-2.5 text-xs font-semibold ${
+                !fromPrevious || !hasPreviousCut
+                  ? "bg-accent text-ink"
+                  : "bg-ink text-white/75 ring-1 ring-line"
+              }`}
+              onClick={() => setFromPrevious(false)}
+            >
+              이 장면만
+            </button>
+            <button
+              type="button"
+              disabled={!hasPreviousCut}
+              className={`rounded-xl py-2.5 text-xs font-semibold ${
+                fromPrevious && hasPreviousCut
+                  ? "bg-accent text-ink"
+                  : "bg-ink text-white/75 ring-1 ring-line"
+              } disabled:opacity-40`}
+              onClick={() => {
+                const wasOff = !fromPrevious;
+                setFromPrevious(true);
+                if (hasPreviousCut && wasOff) onSetPose(activePose, true);
+              }}
+            >
+              이전부터
+            </button>
+          </div>
+        </>
+      ) : null}
 
       <p className="mb-1.5 text-xs font-semibold text-white/50">책임 범위</p>
       <p className="mb-2 text-[11px] leading-relaxed text-white/40">

@@ -16,6 +16,7 @@ import { Modal } from "../components/Modal";
 import { downloadBlob, downloadPng, fileSafeName } from "../lib/capture";
 import { duplicatePlay, nextCutName, netYNorm, remapPlayToCourt, sceneLabel, SCENE_NAME_CHIPS } from "../lib/defaultPlay";
 import { saveCapture, savePlay } from "../lib/db";
+import { registerBackHandler } from "../lib/backHandlers";
 import {
   detectVideoFormat,
   encodeGif,
@@ -38,6 +39,7 @@ import {
   withCoverageDefaults,
 } from "../lib/inspect";
 import { applyUserPreset, newCone, newPlayer, newText } from "../lib/presets";
+import { applyManualPoseToCuts, playerPoseLeadIn, playerPoseOnCut, poseMapAtPlayhead } from "../lib/playerPose";
 import { PEN_COLORS, strokeNearPoint } from "../lib/stroke";
 import {
   type Album,
@@ -46,6 +48,7 @@ import {
   type EditorTool,
   type FormationPreset,
   type Play,
+  type PlayerPose,
   type Stroke,
   type StrokeKind,
   type ZoneMode,
@@ -66,7 +69,7 @@ type Props = {
   onChange: (play: Play) => void;
   onBack: () => void;
   onOpenPlay: (id: string) => void;
-  onSavedToGallery: (albumId: string) => void;
+  onSavedToGallery: (albumId: string, playId: string) => void;
   onSaveAndNew: (saved: Play, next: Play) => void;
   onCreateAlbum: (title: string) => Promise<string>;
   onCreateFormation: (play: Play) => void;
@@ -93,6 +96,7 @@ export function EditorScreen({
   const [looping, setLooping] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectMenu, setSelectMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDeleteCut, setConfirmDeleteCut] = useState(false);
   const [zoneOpen, setZoneOpen] = useState(false);
   const [courtOpen, setCourtOpen] = useState(false);
@@ -127,6 +131,7 @@ export function EditorScreen({
   const albumStripRef = useRef<HTMLDivElement>(null);
   const albumDragRef = useRef<{ x: number; sl: number; moved: boolean } | null>(null);
   const albumDraggedRef = useRef(false);
+  const cutDragRef = useRef<{ from: number; x: number; y: number; moved: boolean } | null>(null);
   const playheadRef = useRef(0);
   const playingRef = useRef(false);
   const playSpeedRef = useRef(1);
@@ -262,6 +267,14 @@ export function EditorScreen({
     () => editCut?.objects.find((o) => o.id === editingId) ?? null,
     [editCut, editingId],
   );
+  const poseByPlayerId = useMemo(
+    () => poseMapAtPlayhead(play.cuts, playhead),
+    [play.cuts, playhead],
+  );
+  const editingPlayerPose: PlayerPose = useMemo(() => {
+    if (editing?.kind !== "player") return "idle";
+    return playerPoseOnCut(editCut?.objects, editing.id);
+  }, [editing, editCut]);
 
   function pushUndo() {
     undoRef.current.push(structuredClone(playRef.current));
@@ -339,12 +352,14 @@ export function EditorScreen({
     if (!id) {
       setEditingId(null);
       setSelectedIds([]);
+      setSelectMenu(null);
       return;
     }
     if (additive) {
       setSelectedIds((prev) => {
         const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
         setEditingId(next[next.length - 1] ?? null);
+        if (next.length < 2) setSelectMenu(null);
         return next;
       });
       return;
@@ -356,6 +371,7 @@ export function EditorScreen({
   function selectIds(ids: string[]) {
     setSelectedIds(ids);
     setEditingId(ids[ids.length - 1] ?? null);
+    if (ids.length < 2) setSelectMenu(null);
   }
 
   function setCourt(court: CourtType) {
@@ -373,6 +389,17 @@ export function EditorScreen({
     const cuts = [...play.cuts.slice(0, i + 1), copy, ...play.cuts.slice(i + 1)];
     updatePlay(cuts);
     setPlayhead(i + 1);
+  }
+
+  function moveCut(from: number, to: number) {
+    if (from === to || to < 0) return;
+    const cuts = [...playRef.current.cuts];
+    if (to >= cuts.length) return;
+    pushUndo();
+    const [item] = cuts.splice(from, 1);
+    cuts.splice(to, 0, item);
+    updatePlay(cuts);
+    setPlayhead(to);
   }
 
   function deleteCut() {
@@ -471,13 +498,25 @@ export function EditorScreen({
     );
   }
 
+  function idsWithoutBall(ids: string[]) {
+    const kind = new Map(
+      playRef.current.cuts.flatMap((c) => c.objects).map((o) => [o.id, o.kind]),
+    );
+    return ids.filter((id) => kind.get(id) !== "ball");
+  }
+
   function deletePlayer() {
-    const ids = selectedIdsRef.current.length
-      ? selectedIdsRef.current
-      : editingId
-        ? [editingId]
-        : [];
-    if (ids.length === 0) return;
+    const ids = idsWithoutBall(
+      selectedIdsRef.current.length
+        ? selectedIdsRef.current
+        : editingId
+          ? [editingId]
+          : [],
+    );
+    if (ids.length === 0) {
+      setConfirmDeletePlayer(false);
+      return;
+    }
     pushUndo();
     const drop = new Set(ids);
     updatePlay(
@@ -488,6 +527,7 @@ export function EditorScreen({
     );
     setEditingId(null);
     setSelectedIds([]);
+    setSelectMenu(null);
     setConfirmDeletePlayer(false);
   }
 
@@ -646,7 +686,12 @@ export function EditorScreen({
   function applyFormation(preset: FormationPreset) {
     pushUndo();
     const i = editIndex;
-    const { objects, extras } = applyUserPreset(play.cuts[i].objects, preset.objects);
+    const { objects, extras } = applyUserPreset(
+      play.cuts[i].objects,
+      preset.objects,
+      preset.court,
+      play.court,
+    );
     updatePlay(
       play.cuts.map((c, idx) => {
         if (idx === i) return { ...c, objects };
@@ -689,6 +734,21 @@ export function EditorScreen({
   }
 
   useEffect(() => {
+    return registerBackHandler(() => {
+      leaveNow(onBack);
+      return true;
+    });
+  }, [onBack]);
+
+  useEffect(() => {
+    if (!selectMenu) return;
+    return registerBackHandler(() => {
+      setSelectMenu(null);
+      return true;
+    });
+  }, [selectMenu]);
+
+  useEffect(() => {
     function typing(target: EventTarget | null) {
       const el = target as HTMLElement | null;
       if (!el) return false;
@@ -722,7 +782,9 @@ export function EditorScreen({
       if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
         const cut = playRef.current.cuts[editCutIndex()];
-        selectIds(cut?.objects.map((o) => o.id) ?? []);
+        selectIds(
+          (cut?.objects.filter((o) => o.kind !== "ball").map((o) => o.id) ?? []),
+        );
         return;
       }
       if (e.key === " " && !e.repeat) {
@@ -732,7 +794,12 @@ export function EditorScreen({
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (!editingIdRef.current && selectedIdsRef.current.length === 0) return;
+        const raw = selectedIdsRef.current.length
+          ? selectedIdsRef.current
+          : editingIdRef.current
+            ? [editingIdRef.current]
+            : [];
+        if (idsWithoutBall(raw).length === 0) return;
         e.preventDefault();
         setConfirmDeletePlayer(true);
       }
@@ -784,7 +851,9 @@ export function EditorScreen({
       const current = playRef.current;
       const frames = view3dRef.current
         ? await court3dRef.current?.captureViews(moviePlayheads(current.cuts))
-        : await canvasRef.current?.captureViews(movieViews(current.cuts, showTrails));
+        : await canvasRef.current?.captureViews(
+            movieViews(current.cuts, showTrails),
+          );
       if (!frames?.length) {
         throw new Error("코트를 캡처할 수 없습니다.");
       }
@@ -1001,7 +1070,10 @@ export function EditorScreen({
                   active={view3d}
                   disabled={exportBusy}
                   onClick={() => {
-                    setView3d((v) => !v);
+                    setView3d((v) => {
+                      if (!v) setCameraNonce((n) => n + 1);
+                      return !v;
+                    });
                     setDrawOpen(false);
                     setTool("select");
                     setEditingId(null);
@@ -1207,6 +1279,7 @@ export function EditorScreen({
             ref={canvasRef}
             court={play.court}
             objects={view.objects}
+            poseByPlayerId={poseByPlayerId}
             trails={showTrails ? view.trails : []}
             strokes={view.strokes}
             zoneMode={zoneMode}
@@ -1229,13 +1302,21 @@ export function EditorScreen({
             onSelectPlayer={selectObject}
             onSelectIds={selectIds}
             onSelectNone={() => selectObject(null)}
+            onSelectionMenu={(pos) => {
+              const w = 188;
+              const h = 52;
+              setSelectMenu({
+                x: Math.min(Math.max(8, pos.x), window.innerWidth - w - 8),
+                y: Math.min(Math.max(8, pos.y), window.innerHeight - h - 8),
+              });
+            }}
             onStrokeEnd={addStroke}
             onEraseBegin={eraseBegin}
             onEraseAt={eraseAt}
           />
         </div>
         {view3d ? (
-          <div className="absolute inset-0 z-10 h-full w-full bg-ink">
+          <div className="absolute inset-0 z-10 h-full w-full">
             <Court3DView
               ref={court3dRef}
               court={play.court}
@@ -1489,6 +1570,7 @@ export function EditorScreen({
                 </div>
               </div>
 
+              <p className="mb-1 text-[10px] text-white/40">장면을 끌어서 순서를 바꿉니다.</p>
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 {play.cuts.map((cut, i) => {
                   const active = view.activeIndex === i;
@@ -1496,12 +1578,44 @@ export function EditorScreen({
                     <button
                       key={cut.id}
                       type="button"
-                      className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${
+                      data-cut-index={i}
+                      className={`shrink-0 touch-none select-none rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${
                         active
                           ? "border-accent bg-accent text-ink"
                           : "border-white/20 text-white/75"
                       }`}
-                      onClick={() => {
+                      onPointerDown={(e) => {
+                        if (e.button !== 0) return;
+                        cutDragRef.current = {
+                          from: i,
+                          x: e.clientX,
+                          y: e.clientY,
+                          moved: false,
+                        };
+                        try {
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                        } catch {
+                          /* synthetic events may not support capture */
+                        }
+                      }}
+                      onPointerMove={(e) => {
+                        const d = cutDragRef.current;
+                        if (!d || d.from !== i) return;
+                        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) d.moved = true;
+                      }}
+                      onPointerUp={(e) => {
+                        const d = cutDragRef.current;
+                        cutDragRef.current = null;
+                        if (!d || d.from !== i) return;
+                        if (d.moved) {
+                          const el = document.elementFromPoint(e.clientX, e.clientY);
+                          const btn = el?.closest("[data-cut-index]") as HTMLElement | null;
+                          if (btn) {
+                            const to = Number(btn.dataset.cutIndex);
+                            if (Number.isFinite(to)) moveCut(d.from, to);
+                          }
+                          return;
+                        }
                         setPlaying(false);
                         if (active) {
                           setRenameCut(i);
@@ -1530,6 +1644,7 @@ export function EditorScreen({
       <EditBallModal
         object={!view3d && selectedIds.length <= 1 && editing?.kind === "ball" ? editing : null}
         court={play.court}
+        cutIndex={editIndex}
         travelTo={
           editing?.kind === "ball"
             ? ballTravelToward(play.cuts, editCutIndex(), editing)
@@ -1606,27 +1721,63 @@ export function EditorScreen({
       />
       <EditPlayerModal
         object={!view3d && selectedIds.length <= 1 && editing?.kind === "player" ? editing : null}
+        activePose={editingPlayerPose}
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
           pushUndo();
           updatePlay(
-            play.cuts.map((c) => ({
+            playRef.current.cuts.map((c) => ({
               ...c,
               objects: c.objects.map((o) =>
-                o.id === editingId ? { ...o, ...patch } : o,
+                o.id === editingId && o.kind === "player" ? { ...o, ...patch } : o,
               ),
             })),
           );
           setEditingId(null);
         }}
+        hasPreviousCut={editCutIndex() > 0}
+        onSetPose={(pose, fromPrevious) => {
+          const id = editingId;
+          if (!id) return;
+          const cut = editCutIndex();
+          const cuts = playRef.current.cuts;
+          const sameHere = playerPoseOnCut(cuts[cut]?.objects, id) === pose;
+          const sameLead = playerPoseLeadIn(cuts[cut]?.objects, id) === fromPrevious;
+          if (sameHere && sameLead) return;
+          pushUndo();
+          updatePlay(applyManualPoseToCuts(cuts, cut, id, pose, fromPrevious));
+        }}
         onDelete={() => setConfirmDeletePlayer(true)}
       />
+      {selectMenu && idsWithoutBall(selectedIds).length > 1 ? (
+        <div
+          className="fixed inset-0 z-50"
+          onPointerDown={() => setSelectMenu(null)}
+        >
+          <div
+            className="absolute min-w-[11rem] rounded-xl glass p-1"
+            style={{ left: selectMenu.x, top: selectMenu.y }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="w-full rounded-lg bg-red-700 px-3 py-2.5 text-sm font-semibold"
+              onClick={() => {
+                setSelectMenu(null);
+                setConfirmDeletePlayer(true);
+              }}
+            >
+              선택한 {idsWithoutBall(selectedIds).length}개 삭제
+            </button>
+          </div>
+        </div>
+      ) : null}
       <ConfirmModal
         open={confirmDeletePlayer}
-        title={selectedIds.length > 1 ? "객체 삭제" : "선수 삭제"}
+        title={idsWithoutBall(selectedIds).length > 1 ? "객체 삭제" : "선수 삭제"}
         message={
-          selectedIds.length > 1
-            ? `선택한 ${selectedIds.length}개를 모든 장면에서 삭제할까요?`
+          idsWithoutBall(selectedIds).length > 1
+            ? `선택한 ${idsWithoutBall(selectedIds).length}개를 모든 장면에서 삭제할까요?`
             : `‘${editing?.label ?? "선수"}’ 선수를 모든 장면에서 삭제할까요?`
         }
         confirmLabel="삭제"
@@ -1677,7 +1828,7 @@ export function EditorScreen({
           onChange(saved);
           setSaveOpen(false);
           persistPausedRef.current = true;
-          void savePlay(saved).then(() => onSavedToGallery(saved.albumId));
+          void savePlay(saved).then(() => onSavedToGallery(saved.albumId, saved.id));
         }}
         onSaveAndNew={(input) => {
           const saved = commitSave(input);

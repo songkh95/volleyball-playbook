@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { CoverCardGear, CoverSlot } from "../components/CoverSlot";
 import type { Album, Play } from "../types/play";
+import { registerBackHandler } from "../lib/backHandlers";
 import { CourtThumb } from "./CourtThumb";
 
 type Props = {
@@ -27,6 +29,13 @@ export function AlbumScreen({
   onDeletePlay,
   onCoverChange,
 }: Props) {
+  useEffect(() => {
+    return registerBackHandler(() => {
+      onBack();
+      return true;
+    });
+  }, [onBack]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="shrink-0 px-5 pb-3 pt-[max(1.25rem,env(safe-area-inset-top))]">

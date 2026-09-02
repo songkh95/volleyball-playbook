@@ -1,6 +1,7 @@
 import { applyPalette, GIFEncoder, quantize } from "gifenc";
-import type { CourtObject, Cut, Stroke } from "../types/play";
+import type { CourtObject, Cut, PlayerPose, Stroke } from "../types/play";
 import { playheadFromTime, timelineDurationSec, viewAtPlayhead, type Trail } from "./interpolate";
+import { poseMapAtPlayhead } from "./playerPose";
 
 export const EXPORT_FPS = 24;
 
@@ -8,6 +9,7 @@ export type MovieView = {
   objects: CourtObject[];
   trails: Trail[];
   strokes: Stroke[];
+  poseByPlayerId?: Record<string, PlayerPose>;
 };
 
 export type VideoFormat = { mime: string; ext: "webm" | "mp4" };
@@ -23,13 +25,18 @@ export function moviePlayheads(cuts: Cut[], fps = EXPORT_FPS): number[] {
   );
 }
 
-export function movieViews(cuts: Cut[], showTrails: boolean, fps = EXPORT_FPS): MovieView[] {
+export function movieViews(
+  cuts: Cut[],
+  showTrails: boolean,
+  fps = EXPORT_FPS,
+): MovieView[] {
   return moviePlayheads(cuts, fps).map((playhead) => {
     const view = viewAtPlayhead(cuts, playhead);
     return {
       objects: view.objects,
       trails: showTrails ? view.trails : [],
       strokes: view.strokes,
+      poseByPlayerId: poseMapAtPlayhead(cuts, playhead),
     };
   });
 }

@@ -340,18 +340,20 @@ export async function replaceAll(data: {
   plays: Play[];
   albums: Album[];
   presets: FormationPreset[];
+  match?: LiveMatch | null;
+  roster?: SharedRoster | null;
 }): Promise<void> {
   await clearStore("plays");
   await clearStore("albums");
   await clearStore("presets");
+  await clearStore("captures");
+  await clearStore("covers");
+  await clearStore("matches");
   for (const a of data.albums) await saveAlbum(a);
   for (const p of data.presets) await savePreset(p);
   for (const p of data.plays) await savePlay(p);
-  const keep = new Set([...data.albums.map((a) => a.id), ...data.plays.map((p) => p.id)]);
-  const covers = await listCovers();
-  for (const cover of covers) {
-    if (!keep.has(cover.id)) await deleteCover(cover.id);
-  }
+  if (data.match) await saveLiveMatch(data.match);
+  if (data.roster) await saveSharedRoster(data.roster);
   migrated = false;
 }
 
@@ -359,8 +361,12 @@ export async function addImported(data: {
   plays: Play[];
   albums: Album[];
   presets: FormationPreset[];
+  match?: LiveMatch | null;
+  roster?: SharedRoster | null;
 }): Promise<void> {
   for (const a of data.albums) await saveAlbum(a);
   for (const p of data.presets) await savePreset(p);
   for (const p of data.plays) await savePlay(p);
+  if (data.match) await saveLiveMatch(data.match);
+  if (data.roster) await saveSharedRoster(data.roster);
 }

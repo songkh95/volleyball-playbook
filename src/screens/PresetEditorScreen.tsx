@@ -4,6 +4,7 @@ import { EditPlayerModal } from "../components/EditPlayerModal";
 import { Modal } from "../components/Modal";
 import { RenameModal } from "../components/RenameModal";
 import { savePreset } from "../lib/db";
+import { registerBackHandler } from "../lib/backHandlers";
 import { syncRosterPlayers } from "../lib/defaultPlay";
 import { newPlayer } from "../lib/presets";
 import type { CourtType, FormationPreset, RosterSize } from "../types/play";
@@ -26,6 +27,14 @@ export function PresetEditorScreen({ preset, onChange, onBack }: Props) {
   const didCleanRef = useRef(false);
   const [undoCount, setUndoCount] = useState(0);
   presetRef.current = preset;
+
+  useEffect(() => {
+    return registerBackHandler(() => {
+      persistPausedRef.current = true;
+      void savePreset(presetRef.current).then(onBack);
+      return true;
+    });
+  }, [onBack]);
 
   useEffect(() => {
     if (didCleanRef.current) return;

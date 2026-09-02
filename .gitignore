@@ -16,3 +16,7 @@ ios/App/Podfile.lock
 ios/DerivedData
 .vercel
 .env*
+*.jks
+*.keystore
+android/keystore.properties
+android/upload-keystore.jks

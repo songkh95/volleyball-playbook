@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CoverCardGear, CoverSlot } from "../components/CoverSlot";
 import { Modal } from "../components/Modal";
 import { isBuiltinPreset } from "../lib/formations";
+import { PRIVACY_URL, SUPPORT_EMAIL } from "../lib/legal";
 import type { Album, FormationPreset, Play } from "../types/play";
 import { CourtThumb } from "./CourtThumb";
 
@@ -20,6 +21,7 @@ type Props = {
   onDeletePreset: (preset: FormationPreset) => void;
   onBackup: () => void;
   onRestore: () => void;
+  ready?: boolean;
 };
 
 export function HomeScreen({
@@ -37,6 +39,7 @@ export function HomeScreen({
   onDeletePreset,
   onBackup,
   onRestore,
+  ready = true,
 }: Props) {
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -86,10 +89,20 @@ export function HomeScreen({
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <section className="mb-7">
           <h2 className="mb-3 text-sm font-semibold text-white/80">전술 프로젝트</h2>
-          {albums.length === 0 ? (
-            <p className="mb-3 text-xs leading-relaxed text-white/45">
-              전술 프로젝트가 없습니다. 먼저 프로젝트를 만든 뒤 전술 보드를 추가하세요.
-            </p>
+          {ready && albums.length === 0 ? (
+            <div className="mb-3">
+              <p className="text-xs leading-relaxed text-white/45">
+                전술 프로젝트가 없습니다. 앱을 다시 설치했다면 백업 파일(.vpb)을 먼저
+                불러오세요.
+              </p>
+              <button
+                type="button"
+                className="mt-3 w-full rounded-xl bg-accent py-3 text-sm font-semibold text-ink"
+                onClick={onRestore}
+              >
+                백업 불러오기
+              </button>
+            </div>
           ) : null}
           <div className="grid grid-cols-2 gap-3">
             <button
@@ -213,14 +226,20 @@ export function HomeScreen({
           <button
             type="button"
             className="rounded-xl bg-ink py-3 text-sm text-white/85 ring-1 ring-line"
-            onClick={onBackup}
+            onClick={() => {
+              setSettingsOpen(false);
+              onBackup();
+            }}
           >
             백업 저장
           </button>
           <button
             type="button"
             className="rounded-xl bg-ink py-3 text-sm text-white/85 ring-1 ring-line"
-            onClick={onRestore}
+            onClick={() => {
+              setSettingsOpen(false);
+              onRestore();
+            }}
           >
             백업 불러오기
           </button>
@@ -233,8 +252,17 @@ export function HomeScreen({
           <br />
           Safety cone icon by yoyonpujiono.
         </p>
+        <p className="mb-2 text-xs font-semibold text-white/50">문의</p>
         <a
-          href="./privacy.html"
+          href={`mailto:${SUPPORT_EMAIL}`}
+          className="mb-3 block text-sm text-accent underline-offset-2 hover:underline"
+        >
+          {SUPPORT_EMAIL}
+        </a>
+        <a
+          href={PRIVACY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
           className="inline-block text-[12px] text-white/45 underline-offset-2 hover:text-white/70"
         >
           개인정보 처리방침

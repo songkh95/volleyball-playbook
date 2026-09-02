@@ -17,6 +17,8 @@ export const HEIGHT_AIR = 2.15;
 export const HEIGHT_LOWER_CONTACT = 0.5;
 export const HEIGHT_UPPER_CONTACT =
   PLAYER_SPLIT + (PLAYER_HEIGHT - PLAYER_SPLIT) * 0.55;
+/** player-spike.glb 오른손 높이. 타격 컷에서 공을 손에 맞춤. */
+export const SPIKE_HAND_HEIGHT = 2.08;
 export const HEIGHT_MIN = 0.3;
 export const HEIGHT_MAX = 2.7;
 export const HEIGHT_FLIGHT_MAX = 5.4;
@@ -63,11 +65,12 @@ export function contactZoneFromHeight(height: number): "upper" | "lower" {
   return height < PLAYER_SPLIT ? "lower" : "upper";
 }
 
+/** 이 장면에서 다음 장면으로 가는 이동. 도착 장면의 스파이크를 끌어오지 않는다. */
 export function segmentFlight(
   fromBall: CourtObject | null | undefined,
-  toBall: CourtObject | null | undefined,
+  _toBall?: CourtObject | null,
 ): BallFlight | undefined {
-  return fromBall?.flight ?? toBall?.flight;
+  return fromBall?.flight;
 }
 
 export function ballTravelT(t: number, flight?: BallFlight | null) {
@@ -151,10 +154,13 @@ function analyzeObjects(objects: CourtObject[], court: CourtType): CutBall {
   }
   const near = nearestPlayer(ball, objects);
   if (ball.height != null) {
-    const height = Math.max(BALL_RADIUS, Math.min(HEIGHT_MAX, ball.height));
+    let height = Math.max(BALL_RADIUS, Math.min(HEIGHT_MAX, ball.height));
     const band = bandFromHeight(height);
     const zone: ContactZone = band === "air" ? "air" : contactZoneFromHeight(height);
     const nearEnough = near.dist <= CONTACT_NORM;
+    if (ball.flight === "spike" && nearEnough && zone !== "lower") {
+      height = Math.max(height, Math.min(HEIGHT_MAX, SPIKE_HAND_HEIGHT));
+    }
     return {
       x: ball.x,
       y: ball.y,
@@ -168,10 +174,11 @@ function analyzeObjects(objects: CourtObject[], court: CourtType): CutBall {
     };
   }
   const zone = geometryZone(ball, court, near.dist);
+  const spikeContact = ball.flight === "spike" && zone === "upper";
   return {
     x: ball.x,
     y: ball.y,
-    height: zoneHeight(zone),
+    height: spikeContact ? SPIKE_HAND_HEIGHT : zoneHeight(zone),
     zone,
     playerId: zone === "air" ? null : near.player?.id ?? null,
     playerX: near.player?.x,
@@ -183,24 +190,6 @@ function analyzeObjects(objects: CourtObject[], court: CourtType): CutBall {
 
 function analyzeCuts(cuts: Cut[], court: CourtType): CutBall[] {
   return cuts.map((cut) => analyzeObjects(cut.objects, court));
-}
-
-function liveContactXY(
-  fromObjs: CourtObject[],
-  toObjs: CourtObject[],
-  toState: CutBall,
-  t: number,
-) {
-  if (!toState.playerId) return { x: toState.x, y: toState.y };
-  const pTo = toObjs.find((o) => o.id === toState.playerId && o.kind === "player");
-  if (!pTo) return { x: toState.x, y: toState.y };
-  const pFrom = fromObjs.find((o) => o.id === toState.playerId && o.kind === "player");
-  const liveX = pFrom ? lerp(pFrom.x, pTo.x, t) : pTo.x;
-  const liveY = pFrom ? lerp(pFrom.y, pTo.y, t) : pTo.y;
-  return {
-    x: liveX + (toState.x - pTo.x),
-    y: liveY + (toState.y - pTo.y),
-  };
 }
 
 function passMeters(
@@ -332,33 +321,11 @@ export function interpolateBallPosition(
   if (xyStill(from, to)) {
     return { x: from.x, y: from.y, flight: segmentFlight(from, to) };
   }
-  const flight = segmentFlight(from, to);
+  const flight = from.flight;
   const travelT = ballTravelT(t, flight);
-  let destX = to.x;
-  let destY = to.y;
-  if (flight === "fast" || flight === "spike") {
-    const near = nearestPlayer(to, toObjs);
-    if (near.player && near.dist <= CONTACT_NORM) {
-      const contact = liveContactXY(
-        fromObjs,
-        toObjs,
-        {
-          x: to.x,
-          y: to.y,
-          height: 0,
-          zone: "air",
-          playerId: near.player.id,
-          manual: false,
-        },
-        t,
-      );
-      destX = contact.x;
-      destY = contact.y;
-    }
-  }
   return {
-    x: lerp(from.x, destX, travelT),
-    y: lerp(from.y, destY, travelT),
+    x: lerp(from.x, to.x, travelT),
+    y: lerp(from.y, to.y, travelT),
     flight,
   };
 }
@@ -385,7 +352,7 @@ export function ballPoseAtPlayhead(
   if (t <= 0.0005) return { ...from };
   if (t >= 0.9995) return { ...to };
 
-  const flight = from.flight ?? to.flight;
+  const flight = from.flight;
   if (xyStill(from, to)) {
     return {
       x: from.x,
@@ -398,19 +365,11 @@ export function ballPoseAtPlayhead(
   }
 
   const travelT = ballTravelT(t, flight);
-  let destX = to.x;
-  let destY = to.y;
-  if (flight === "fast" || flight === "spike") {
-    const contact = liveContactXY(cuts[i].objects, cuts[i + 1].objects, to, t);
-    destX = contact.x;
-    destY = contact.y;
-  }
-
   const atDest = travelT >= 0.97;
   const atStart = travelT <= 0.03;
   return {
-    x: lerp(from.x, destX, travelT),
-    y: lerp(from.y, destY, travelT),
+    x: lerp(from.x, to.x, travelT),
+    y: lerp(from.y, to.y, travelT),
     height: heightOnSegment(from, to, t, travelT, court, flight),
     zone: atDest ? to.zone : atStart ? from.zone : "air",
     playerId: atDest ? to.playerId : atStart ? from.playerId : null,

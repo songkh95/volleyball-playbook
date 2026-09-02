@@ -13,8 +13,9 @@ export function ImportBackupModal({ open, count, onClose, onAdd, onReplace }: Pr
   return (
     <Modal open title="백업 불러오기" onClose={onClose}>
       <p className="mb-5 text-sm leading-relaxed text-white/75">
-        파일에서 전술 {count}개를 찾았습니다. 지금 목록에 더할지, 기존 전술을
-        모두 지우고 이 파일로 바꿀지 고르세요.
+        파일에서 전술 {count}개를 찾았습니다. 목록에 추가하면 전술은 지금 목록에
+        더하고, 파일에 경기 기록이 있으면 기록 탭도 그걸로 바꿉니다. 전부 교체는
+        갤러리까지 지운 뒤 파일로 바꿉니다.
       </p>
       <div className="grid gap-2">
         <button

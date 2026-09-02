@@ -11,36 +11,55 @@
 • 컷을 여러 장 만들고 재생하면 움직임이 이어집니다
 • 펜·지우개·레이저로 동선을 그립니다
 • 대형 프리셋을 만들어 두고 전술에 불러옵니다
-• 백업 파일(.vpb)을 저장해 앱을 지운 뒤에도 복구할 수 있습니다
+• 백업 파일(.vpb)을 저장해 앱을 지우기 전에 복구할 수 있습니다
 • PC 웹과 같은 파일을 주고받을 수 있습니다 (실시간 동기화 아님)
 
 로그인, 계정, 클라우드 동기화는 없습니다.
-캡처 이미지는 이 기기에만 남고 백업 파일에는 들어가지 않습니다.
+캡처·GIF·영상·커버 사진은 이 기기에만 남고 백업 파일에는 들어가지 않습니다.
+경기 기록은 백업 파일에 함께 저장됩니다.
 
 카테고리
 스포츠
 
 연락처
-스토어 앱 페이지의 개발자 이메일
+xeroxclean@naver.com
 
-개인정보 처리방침
-배포한 웹 주소의 /privacy.html
-예: https://(계정).github.io/(저장소명)/privacy.html
+개인정보 처리방침 (Play Console에 이 주소를 그대로 입력)
+https://songkh95.github.io/volleyball-playbook/privacy.html
 
 웹 배포 (GitHub Pages)
-1) GitHub에 저장소를 만들고 이 프로젝트를 push
-2) Settings → Pages → Source: GitHub Actions
-3) 워크플로 .github/workflows/pages.yml 이 main/master push 때 dist를 올립니다
-4) 주소 예: https://(계정).github.io/(저장소명)/
+이미 연결되어 있습니다. master에 push하면 .github/workflows/pages.yml 이
+https://songkh95.github.io/volleyball-playbook/ 로 dist를 올립니다.
+정책 페이지 주소는 위와 같습니다. 개정 후 반드시 push 해야 스토어 URL에 반영됩니다.
+
+버전
+앱·패키지·Android 모두 1.0.0 (versionCode 1). 다음 스토어 업로드부터 versionCode만 올립니다.
+
+Play Data Safety 작성 요지 (수집=기기에만, 공유=없음)
+• 개인정보(이름·이메일·전화·위치): 수집하지 않음
+• 사진 및 동영상: 수집함 — 앱 기능, 기기에만 저장, 서버 공유 없음
+  (커버 사진, 코트 캡처, GIF, 영상 내보내기)
+• 카메라: 사용함 — 커버 촬영. 사진 권한과 같이 기기에만 저장
+• 데이터 암호화 전송 / 계정 삭제: 해당 없음 (서버·계정 없음)
+• 사용자가 삭제할 수 있음: 앱 삭제 또는 앱 안에서 전술·캡처·커버 삭제
 
 Android 릴리스
 디버그 APK: npm run android:debug
   → android/app/build/outputs/apk/debug/app-debug.apk
-스토어용 AAB: Play Console 업로드 키로 서명한 뒤
-  cd android
-  gradlew.bat bundleRelease
+
+업로드 키 (한 번만, 저장소 밖. 분실하면 앱을 새로 만들어야 함)
+1) android/keystore.properties.example 을 android/keystore.properties 로 복사
+2) 비밀번호를 넣고, 키스토어를 만듭니다 (android 폴더에서):
+
+   keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+
+3) keystore.properties 의 storePassword / keyPassword 를 그 비밀번호로 바꿉니다
+4) upload-keystore.jks 와 keystore.properties 는 git에 넣지 않습니다
+   (이미 .gitignore 처리)
+
+스토어용 AAB: npm run android:bundle
   → android/app/build/outputs/bundle/release/app-release.aab
-서명 키는 이 저장소에 넣지 않습니다.
+keystore.properties 가 없으면 서명되지 않은 번들이 나와 Play가 거절합니다.
 
 스크린샷 (전화 9:16, 1080×1920)
 store/screenshots/01-home.png

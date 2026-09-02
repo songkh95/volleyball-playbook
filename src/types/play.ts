@@ -1,8 +1,11 @@
+import type { LiveMatch, SharedRoster } from "./match";
+
 export type CourtType = "half" | "full";
 export type RosterSize = 6 | 9;
 export type ObjKind = "player" | "ball" | "cone" | "text";
 export type PlayerTeam = "ours" | "opp";
 export type BallFlight = "fast" | "slow" | "spike";
+export type PlayerPose = "idle" | "receive" | "set" | "spike";
 
 /** 공에서 퍼지는 낙하 부채꼴. heading 0은 상대 엔드(+y). */
 export type LandingFan = {
@@ -24,6 +27,13 @@ export type CourtObject = {
   height?: number;
   /** 공만 사용. 다음 장면으로 가는 이동. 없으면 보통. */
   flight?: BallFlight;
+  /** 선수만 사용. 이 장면의 자세. 없으면 대기. 여러 선수가 동시에 쓸 수 있다. */
+  pose?: PlayerPose;
+  /**
+   * 선수만 사용. false면 이 장면만(그 장면 시작~끝).
+   * 없거나 true면 바로 앞 장면 시작부터 이 장면 끝까지. 기본은 이전부터.
+   */
+  poseLeadIn?: boolean;
   /** 선수만 사용. 이 장면의 책임 범위. */
   coverageOn?: boolean;
   /** 선수만 사용. 책임 범위 반경(m). 없으면 2.5. */
@@ -97,12 +107,14 @@ export type Play = {
 };
 
 export type BackupFile = {
-  schema: 1 | 2;
+  schema: 1 | 2 | 3;
   app: "volleyball-playbook";
   exportedAt: string;
   plays: Play[];
   albums?: Album[];
   presets?: FormationPreset[];
+  match?: LiveMatch | null;
+  roster?: SharedRoster | null;
 };
 
 export const TEAM_RED = "#ff3b3b";

@@ -1,6 +1,6 @@
 import { TEAM_BLUE_LEGACY } from "../design/tokens";
 import { TEAM_BLUE, TEAM_RED, type CourtObject, type CourtType, type PlayerTeam } from "../types/play";
-import { netYNorm } from "./defaultPlay";
+import { netYNorm, remapObjectsToCourt } from "./defaultPlay";
 import { uid } from "./id";
 
 export function newPlayer(
@@ -68,9 +68,12 @@ export function newText(court: CourtType): CourtObject {
 export function applyUserPreset(
   current: CourtObject[],
   presetObjs: CourtObject[],
+  fromCourt: CourtType,
+  toCourt: CourtType,
 ): { objects: CourtObject[]; extras: CourtObject[] } {
-  const pPlayers = presetObjs.filter((o) => o.kind === "player");
-  const pBall = presetObjs.find((o) => o.kind === "ball");
+  const source = remapObjectsToCourt(presetObjs, fromCourt, toCourt);
+  const pPlayers = source.filter((o) => o.kind === "player");
+  const pBall = source.find((o) => o.kind === "ball");
   const cPlayers = current.filter((o) => o.kind === "player");
   const markers = current.filter((o) => o.kind === "cone" || o.kind === "text");
   const extras: CourtObject[] = [];

@@ -23,6 +23,7 @@ import { Modal } from "./Modal";
 type Props = {
   object: CourtObject | null;
   court: CourtType;
+  cutIndex?: number;
   travelTo?: { x: number; y: number };
   onClose: () => void;
   onSave: (patch: {
@@ -33,7 +34,12 @@ type Props = {
 };
 
 const HEIGHT_PRESETS: Exclude<BallHeightBand, "auto">[] = ["lower", "upper", "air"];
-const FLIGHT_PRESETS: (BallFlight | undefined)[] = [undefined, "fast", "slow", "spike"];
+const FLIGHT_PRESETS: (BallFlight | undefined)[] = [undefined, "fast", "slow"];
+
+/** 예전 스파이크 이동은 빠른 공과 같이 보여 주고, 궤적은 그대로 둔다. */
+function displayFlight(flight?: BallFlight) {
+  return flight === "spike" ? "fast" : flight;
+}
 
 function deg(rad: number) {
   return Math.round((((rad * 180) / Math.PI) % 360) + 360) % 360;
@@ -47,7 +53,7 @@ function headingHint(degrees: number) {
   return "";
 }
 
-export function EditBallModal({ object, court, travelTo, onClose, onSave }: Props) {
+export function EditBallModal({ object, court, cutIndex, travelTo, onClose, onSave }: Props) {
   const [mode, setMode] = useState<BallHeightBand>("auto");
   const [height, setHeight] = useState(heightForBand("upper"));
   const [flight, setFlight] = useState<BallFlight | undefined>(undefined);
@@ -66,7 +72,7 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
     }
     setMode(bandFromHeight(object.height));
     setHeight(object.height);
-  }, [object?.id, object?.kind, object?.height, object?.flight, object?.fan, court, travelTo]);
+  }, [object, cutIndex, court, travelTo]);
 
   const contact = useMemo(() => contactZoneFromHeight(height), [height]);
   const band = mode === "auto" ? "auto" : bandFromHeight(height);
@@ -89,7 +95,11 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
     nextFlight: BallFlight | undefined,
     nextFan: LandingFan | null,
   ) {
-    onSave({ height: nextHeight, flight: nextFlight, fan: nextFan });
+    onSave({
+      height: nextHeight,
+      flight: nextFlight,
+      fan: nextFan,
+    });
   }
 
   function heightValue() {
@@ -98,32 +108,17 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
 
   function applyBand(next: BallHeightBand) {
     setMode(next);
-    let nextFlight = flight;
-    if (next === "lower" && flight === "spike") {
-      nextFlight = undefined;
-      setFlight(undefined);
-    }
     if (next === "auto") {
-      commit(undefined, nextFlight, currentFan());
+      commit(undefined, flight, currentFan());
       return;
     }
     const nextHeight = heightForBand(next);
     setHeight(nextHeight);
-    commit(nextHeight, nextFlight, currentFan());
+    commit(nextHeight, flight, currentFan());
   }
 
   function applyFlight(next: BallFlight | undefined) {
-    if (next === "spike") {
-      const zone = mode === "auto" ? "upper" : bandFromHeight(height);
-      if (zone === "lower") {
-        const nextHeight = heightForBand("upper");
-        setMode("upper");
-        setHeight(nextHeight);
-        setFlight(next);
-        commit(nextHeight, next, currentFan());
-        return;
-      }
-    }
+    if (next === "fast" && flight === "spike") return;
     setFlight(next);
     commit(heightValue(), next, currentFan());
   }
@@ -222,13 +217,15 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
       </div>
 
       <p className="mb-1.5 text-xs font-semibold text-white/50">이동</p>
-      <div className="mb-3 grid grid-cols-4 gap-1.5">
+      <div className="mb-3 grid grid-cols-3 gap-1.5">
         {FLIGHT_PRESETS.map((item) => (
           <button
             key={item ?? "normal"}
             type="button"
             className={`rounded-xl py-2.5 text-xs font-semibold ${
-              flight === item ? "bg-accent text-ink" : "bg-ink text-white/75 ring-1 ring-line"
+              displayFlight(flight) === item
+                ? "bg-accent text-ink"
+                : "bg-ink text-white/75 ring-1 ring-line"
             }`}
             onClick={() => applyFlight(item)}
           >
@@ -237,11 +234,9 @@ export function EditBallModal({ object, court, travelTo, onClose, onSave }: Prop
         ))}
       </div>
       <p className="mb-5 text-[11px] leading-relaxed text-white/40">
-        {flight === "spike"
-          ? "상단에서만 씁니다. 빠른 공보다 더 빠르고 궤적이 평평합니다."
-          : flight === "fast"
+        {displayFlight(flight) === "fast"
           ? "선수에서 선수로 빠르게 갑니다. 도착한 뒤에는 선수에 붙어 접촉을 유지합니다."
-          : flight === "slow"
+          : displayFlight(flight) === "slow"
             ? "선수에게 갈 때 큰 포물선을 그리며 천천히 떨어집니다."
             : "지금처럼 장면 사이에 보통 속도로 이동합니다."}
       </p>

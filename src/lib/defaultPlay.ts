@@ -260,6 +260,16 @@ function remapY(y: number, from: CourtType, to: CourtType): number {
   return Math.min(1, Math.max(0, (y * fromL) / toL));
 }
 
+/** 코트 길이가 달라도 실제 미터 위치를 유지한다. */
+export function remapObjectsToCourt(
+  objects: CourtObject[],
+  from: CourtType,
+  to: CourtType,
+): CourtObject[] {
+  if (from === to) return objects.map((o) => ({ ...o }));
+  return objects.map((o) => ({ ...o, y: remapY(o.y, from, to) }));
+}
+
 /** 코트 길이가 바뀌어도 실제 미터 위치를 유지한다. */
 export function remapPlayToCourt(play: Play, court: CourtType): Play {
   if (play.court === court) return play;

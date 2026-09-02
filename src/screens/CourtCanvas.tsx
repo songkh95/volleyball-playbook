@@ -5,13 +5,15 @@ import { courtMeters, netYNorm } from "../lib/defaultPlay";
 import { coverageRadius, defaultCoverageOn, fanSectorPoints } from "../lib/inspect";
 import { zoneCells } from "../lib/zones";
 import { isLightColor } from "../lib/colors";
-import { COURT_FILL, COURT_LINE, LABEL_ON_LIGHT, STAGE_BG } from "../design/tokens";
+import { ACCENT, COURT_FILL, COURT_LINE, LABEL_ON_LIGHT, STAGE_BG } from "../design/tokens";
+import { poseShort } from "../lib/playerPose";
 import type { Trail } from "../lib/interpolate";
 import { resolveStrokeKind } from "../lib/stroke";
 import type {
   CourtObject,
   CourtType,
   EditorTool,
+  PlayerPose,
   Stroke,
   StrokeKind,
   ZoneMode,
@@ -32,6 +34,7 @@ type LaserMark = {
 };
 
 const SNAP = 0.02;
+const EMPTY_POSES: Record<string, PlayerPose> = {};
 
 function snapNorm(
   p: { x: number; y: number },
@@ -101,6 +104,7 @@ export type CourtViewSnap = {
   objects: CourtObject[];
   trails: Trail[];
   strokes: Stroke[];
+  poseByPlayerId?: Record<string, PlayerPose>;
 };
 
 export type CourtCanvasHandle = {
@@ -111,6 +115,7 @@ export type CourtCanvasHandle = {
 type Props = {
   court: CourtType;
   objects: CourtObject[];
+  poseByPlayerId?: Record<string, PlayerPose>;
   trails?: Trail[];
   strokes?: Stroke[];
   zoneMode?: ZoneMode;
@@ -125,6 +130,7 @@ type Props = {
   onSelectPlayer: (id: string, additive?: boolean) => void;
   onSelectIds?: (ids: string[]) => void;
   onSelectNone?: () => void;
+  onSelectionMenu?: (pos: { x: number; y: number }) => void;
   onPointerStart?: () => void;
   onStrokeEnd?: (
     points: { x: number; y: number }[],
@@ -140,6 +146,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   {
     court,
     objects,
+    poseByPlayerId = EMPTY_POSES,
     trails = [],
     strokes = [],
     zoneMode = "none",
@@ -154,6 +161,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
     onSelectPlayer,
     onSelectIds,
     onSelectNone,
+    onSelectionMenu,
     onPointerStart,
     onStrokeEnd,
     onEraseBegin,
@@ -166,6 +174,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const objectsRef = useRef(objects);
+  const poseByPlayerIdRef = useRef(poseByPlayerId);
   const trailsRef = useRef(trails);
   const strokesRef = useRef(strokes);
   const zoneRef = useRef(zoneMode);
@@ -220,6 +229,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   const lastTapRef = useRef({ t: 0, x: 0, y: 0 });
 
   objectsRef.current = objects;
+  poseByPlayerIdRef.current = poseByPlayerId;
   trailsRef.current = trails;
   strokesRef.current = strokes;
   zoneRef.current = zoneMode;
@@ -262,6 +272,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
       {
         court: courtRef.current,
         objects: objectsRef.current,
+        poseByPlayerId: poseByPlayerIdRef.current,
         trails: trailsRef.current,
         strokes: strokesRef.current,
         zoneMode: zoneRef.current,
@@ -294,18 +305,16 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
 
   useEffect(() => {
     paint.current();
-  }, [objects, court, trails, strokes, zoneMode, drawColor, drawKind, showCoverage, holeAlpha]);
+  }, [objects, poseByPlayerId, court, trails, strokes, zoneMode, drawColor, drawKind, showCoverage, holeAlpha, selectedIds]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const box = canvas.getBoundingClientRect();
-      const cx = e.clientX - box.left;
-      const cy = e.clientY - box.top;
+      const local = pointerOnView(e, wrap, { scale: 1, tx: 0, ty: 0 });
+      const cx = local.x;
+      const cy = local.y;
       const prev = zoomRef.current;
       const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
       const nextScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev.scale * factor));
@@ -377,6 +386,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           {
             court: courtRef.current,
             objects: view.objects,
+            poseByPlayerId: view.poseByPlayerId,
             trails: view.trails,
             strokes: view.strokes,
             zoneMode: zoneRef.current,
@@ -406,12 +416,17 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         ref={canvasRef}
         className="block h-full w-full touch-none"
         onPointerDown={(e) => {
+          if (e.button !== 0) return;
           onPointerStart?.();
           const canvas = canvasRef.current;
           const wrap = wrapRef.current;
           if (!canvas || !wrap) return;
           pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-          canvas.setPointerCapture(e.pointerId);
+          try {
+            canvas.setPointerCapture(e.pointerId);
+          } catch {
+            /* synthetic / already captured */
+          }
           if (pointersRef.current.size >= 2) {
             pinchUsedRef.current = true;
             dragRef.current = null;
@@ -432,21 +447,21 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           }
           if (!interactiveRef.current) return;
           const toolNow = toolRef.current;
-          const hit = hitTest(e, canvas, rectRef.current, objectsRef.current, zoomRef.current);
+          const hit = hitTest(e, wrap, rectRef.current, objectsRef.current, zoomRef.current);
           if (toolNow === "eraser") {
             eraseRef.current = true;
             onEraseBegin?.();
             const p = clampToCanvas(
-              clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+              clientToNorm(e, wrap, rectRef.current, zoomRef.current),
               rectRef.current,
-              canvas,
+              wrap,
             );
             onEraseAt?.(p.x, p.y);
             e.preventDefault();
             return;
           }
           if (toolNow === "pen" || toolNow === "laser") {
-            const p = clientToNorm(e, canvas, rectRef.current, zoomRef.current);
+            const p = clientToNorm(e, wrap, rectRef.current, zoomRef.current);
             const color = drawColorRef.current;
             const kind = drawKindRef.current;
             const laser = toolNow === "laser";
@@ -458,7 +473,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             return;
           }
           if (toolNow === "select" && !hit) {
-            if (zoomRef.current.scale > 1.001) {
+            if (!canMarqueeSelect(e) || zoomRef.current.scale > 1.001) {
               panRef.current = {
                 x: e.clientX,
                 y: e.clientY,
@@ -468,15 +483,21 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
               e.preventDefault();
               return;
             }
-            const p = clientToNorm(e, canvas, rectRef.current, zoomRef.current);
+            const p = clientToNorm(e, wrap, rectRef.current, zoomRef.current);
             marqueeRef.current = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
             paint.current();
             e.preventDefault();
             return;
           }
           if (!hit) return;
-          const selected = selectedIdsRef.current;
-          const groupIds = selected.includes(hit.id) && selected.length > 1 ? selected : [hit.id];
+          const selected = selectedIdsRef.current.filter((id) => {
+            const obj = objectsRef.current.find((o) => o.id === id);
+            return obj && obj.kind !== "ball";
+          });
+          const groupIds =
+            hit.kind !== "ball" && selected.includes(hit.id) && selected.length > 1
+              ? selected
+              : [hit.id];
           const group = objectsRef.current
             .filter((o) => groupIds.includes(o.id))
             .map((o) => ({ id: o.id, x: o.x, y: o.y }));
@@ -508,9 +529,16 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
               MAX_ZOOM,
               Math.max(MIN_ZOOM, start.scale * (dist / start.dist)),
             );
-            const box = canvas.getBoundingClientRect();
-            const cx = (pts[0].x + pts[1].x) / 2 - box.left;
-            const cy = (pts[0].y + pts[1].y) / 2 - box.top;
+            const mid = pointerOnView(
+              {
+                clientX: (pts[0].x + pts[1].x) / 2,
+                clientY: (pts[0].y + pts[1].y) / 2,
+              },
+              wrap,
+              { scale: 1, tx: 0, ty: 0 },
+            );
+            const cx = mid.x;
+            const cy = mid.y;
             const wx = (cx - start.tx) / start.scale;
             const wy = (cy - start.ty) / start.scale;
             zoomRef.current = clampZoom(
@@ -542,7 +570,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           }
           if (!interactiveRef.current) return;
           if (marqueeRef.current) {
-            const p = clientToNorm(e, canvas, rectRef.current, zoomRef.current);
+            const p = clientToNorm(e, wrap, rectRef.current, zoomRef.current);
             marqueeRef.current = { ...marqueeRef.current, x1: p.x, y1: p.y };
             paint.current();
             e.preventDefault();
@@ -550,9 +578,9 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           }
           if (eraseRef.current) {
             const p = clampToCanvas(
-              clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+              clientToNorm(e, wrap, rectRef.current, zoomRef.current),
               rectRef.current,
-              canvas,
+              wrap,
             );
             onEraseAt?.(p.x, p.y);
             e.preventDefault();
@@ -560,9 +588,9 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           }
           if (penRef.current) {
             const p = clampToCanvas(
-              clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+              clientToNorm(e, wrap, rectRef.current, zoomRef.current),
               rectRef.current,
-              canvas,
+              wrap,
             );
             const last = penRef.current.points[penRef.current.points.length - 1];
             if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 0.004) {
@@ -585,9 +613,9 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             onMoveBegin?.();
           }
           const p = clampToCanvas(
-            clientToNorm(e, canvas, rectRef.current, zoomRef.current),
+            clientToNorm(e, wrap, rectRef.current, zoomRef.current),
             rectRef.current,
-            canvas,
+            wrap,
           );
           const skip = new Set(drag.group.map((g) => g.id));
           const snapped = snapNorm(p, courtRef.current, objectsRef.current, skip);
@@ -657,31 +685,62 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             const minY = Math.min(marquee.y0, marquee.y1);
             const maxY = Math.max(marquee.y0, marquee.y1);
             const wide = Math.hypot(marquee.x1 - marquee.x0, marquee.y1 - marquee.y0) > 0.02;
-            paint.current();
             if (wide) {
               const ids = objectsRef.current
-                .filter((o) => o.x >= minX && o.x <= maxX && o.y >= minY && o.y <= maxY)
+                .filter(
+                  (o) =>
+                    o.kind !== "ball" &&
+                    o.x >= minX &&
+                    o.x <= maxX &&
+                    o.y >= minY &&
+                    o.y <= maxY,
+                )
                 .map((o) => o.id);
-              if (ids.length) onSelectIds?.(ids);
-              else onSelectNone?.();
+              if (ids.length) {
+                selectedIdsRef.current = ids;
+                onSelectIds?.(ids);
+              } else {
+                selectedIdsRef.current = [];
+                onSelectNone?.();
+              }
             } else {
+              selectedIdsRef.current = [];
               onSelectNone?.();
             }
+            paint.current();
             e.preventDefault();
             return;
           }
           const drag = dragRef.current;
           dragRef.current = null;
           snapGuideRef.current = null;
-          paint.current();
           if (drag) {
             if (!drag.moved) {
               const obj = objectsRef.current.find((o) => o.id === drag.id);
-              if (obj) onSelectPlayer(obj.id, drag.additive);
+              if (obj) {
+                if (obj.kind === "ball") {
+                  selectedIdsRef.current = [obj.id];
+                  onSelectPlayer(obj.id, false);
+                } else if (drag.additive) {
+                  const prev = selectedIdsRef.current.filter((id) => {
+                    const o = objectsRef.current.find((item) => item.id === id);
+                    return o && o.kind !== "ball";
+                  });
+                  selectedIdsRef.current = prev.includes(obj.id)
+                    ? prev.filter((id) => id !== obj.id)
+                    : [...prev, obj.id];
+                  onSelectPlayer(obj.id, true);
+                } else {
+                  selectedIdsRef.current = [obj.id];
+                  onSelectPlayer(obj.id, false);
+                }
+              }
             }
+            paint.current();
             e.preventDefault();
             return;
           }
+          paint.current();
           if (pointersRef.current.size === 0) {
             if (
               performance.now() - lastTapRef.current.t < 280 &&
@@ -708,6 +767,16 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           livePenRef.current = [];
           paint.current();
         }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const ids = selectedIdsRef.current.filter((id) => {
+            const obj = objectsRef.current.find((o) => o.id === id);
+            return obj && obj.kind !== "ball";
+          });
+          if (ids.length > 1) {
+            onSelectionMenu?.({ x: e.clientX, y: e.clientY });
+          }
+        }}
       />
     </div>
   );
@@ -715,9 +784,31 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
 
 type Zoom = { scale: number; tx: number; ty: number };
 
+/** 마우스·펜만 영역 선택. 폰·손가락은 화면 이동. */
+function canMarqueeSelect(e: { pointerType: string }) {
+  if (e.pointerType === "touch") return false;
+  if (e.pointerType === "pen") return true;
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+function pointerOnView(
+  e: { clientX: number; clientY: number },
+  view: HTMLElement,
+  zoom: Zoom,
+) {
+  const box = view.getBoundingClientRect();
+  const sx = box.width > 0 ? view.clientWidth / box.width : 1;
+  const sy = box.height > 0 ? view.clientHeight / box.height : 1;
+  return {
+    x: ((e.clientX - box.left) * sx - zoom.tx) / zoom.scale,
+    y: ((e.clientY - box.top) * sy - zoom.ty) / zoom.scale,
+  };
+}
+
 type Scene = {
   court: CourtType;
   objects: CourtObject[];
+  poseByPlayerId?: Record<string, PlayerPose>;
   trails: Trail[];
   strokes: Stroke[];
   zoneMode: ZoneMode;
@@ -823,13 +914,23 @@ function paintScene(
   drawCoverageHoles(ctx, rect, scene.objects, scene.court, scene.holeAlpha);
   const selected = new Set(scene.selectedIds ?? []);
   for (const obj of scene.objects) {
-    drawObject(ctx, rect, obj, ballSpin, lastBallPos, selected.has(obj.id));
+    drawObject(
+      ctx,
+      rect,
+      obj,
+      ballSpin,
+      lastBallPos,
+      selected.has(obj.id),
+      scene.poseByPlayerId?.[obj.id],
+    );
   }
   if (scene.marquee) {
-    const x0 = rect.x + Math.min(scene.marquee.x0, scene.marquee.x1) * rect.w;
-    const y0 = rect.y + Math.min(scene.marquee.y0, scene.marquee.y1) * rect.h;
-    const w = Math.abs(scene.marquee.x1 - scene.marquee.x0) * rect.w;
-    const h = Math.abs(scene.marquee.y1 - scene.marquee.y0) * rect.h;
+    const a = objectScreen(rect, { x: scene.marquee.x0, y: scene.marquee.y0 });
+    const b = objectScreen(rect, { x: scene.marquee.x1, y: scene.marquee.y1 });
+    const x0 = Math.min(a.x, b.x);
+    const y0 = Math.min(a.y, b.y);
+    const w = Math.abs(a.x - b.x);
+    const h = Math.abs(a.y - b.y);
     ctx.save();
     ctx.strokeStyle = "rgba(94, 224, 208, 0.85)";
     ctx.fillStyle = "rgba(94, 224, 208, 0.12)";
@@ -906,29 +1007,27 @@ function clampZoom(z: Zoom, cssW: number, cssH: number): Zoom {
 
 function clientToNorm(
   e: { clientX: number; clientY: number },
-  canvas: HTMLCanvasElement,
+  view: HTMLElement,
   rect: CourtRect,
   zoom: Zoom,
 ) {
-  const box = canvas.getBoundingClientRect();
-  const px = (e.clientX - box.left - zoom.tx) / zoom.scale;
-  const py = (e.clientY - box.top - zoom.ty) / zoom.scale;
+  const p = pointerOnView(e, view, zoom);
   return {
-    x: (px - rect.x) / rect.w,
-    y: 1 - (py - rect.y) / rect.h,
+    x: (p.x - rect.x) / rect.w,
+    y: 1 - (p.y - rect.y) / rect.h,
   };
 }
 
 function clampToCanvas(
   p: { x: number; y: number },
   rect: CourtRect,
-  canvas: HTMLCanvasElement,
+  view: HTMLElement,
 ) {
   const pad = 8;
   const minX = (pad - rect.x) / rect.w;
-  const maxX = (canvas.clientWidth - pad - rect.x) / rect.w;
+  const maxX = (view.clientWidth - pad - rect.x) / rect.w;
   const yTop = 1 - (pad - rect.y) / rect.h;
-  const yBot = 1 - (canvas.clientHeight - pad - rect.y) / rect.h;
+  const yBot = 1 - (view.clientHeight - pad - rect.y) / rect.h;
   const minY = Math.min(yTop, yBot);
   const maxY = Math.max(yTop, yBot);
   return {
@@ -939,14 +1038,14 @@ function clampToCanvas(
 
 function hitTest(
   e: { clientX: number; clientY: number },
-  canvas: HTMLCanvasElement,
+  view: HTMLElement,
   rect: CourtRect,
   objects: CourtObject[],
   zoom: Zoom,
 ): CourtObject | null {
-  const box = canvas.getBoundingClientRect();
-  const px = (e.clientX - box.left - zoom.tx) / zoom.scale;
-  const py = (e.clientY - box.top - zoom.ty) / zoom.scale;
+  const p = pointerOnView(e, view, zoom);
+  const px = p.x;
+  const py = p.y;
   let best: CourtObject | null = null;
   let bestD = Infinity;
   for (const obj of objects) {
@@ -1269,6 +1368,26 @@ function drawTrail(
   ctx.restore();
 }
 
+function drawSelectionRing(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = STAGE_BG;
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawObject(
   ctx: CanvasRenderingContext2D,
   rect: CourtRect,
@@ -1276,6 +1395,7 @@ function drawObject(
   ballSpin: Map<string, number>,
   lastBallPos: Map<string, { x: number; y: number }>,
   highlighted = false,
+  pose?: PlayerPose,
 ) {
   const p = objectScreen(rect, obj);
   const size = Math.min(rect.w, rect.h);
@@ -1294,48 +1414,24 @@ function drawObject(
     }
     lastBallPos.set(obj.id, { x: obj.x, y: obj.y });
     drawBall(ctx, p.x, p.y, r, spin, obj.color);
-    if (highlighted) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = "#ffd54f";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
+    if (highlighted) drawSelectionRing(ctx, p.x, p.y, r + 6);
     return;
   }
 
   if (obj.kind === "cone") {
     drawCone(ctx, p.x, p.y, size, obj.color);
-    if (highlighted) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, size * 0.06, 0, Math.PI * 2);
-      ctx.strokeStyle = "#ffd54f";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
+    if (highlighted) drawSelectionRing(ctx, p.x, p.y, size * 0.07);
     return;
   }
 
   if (obj.kind === "text") {
     drawBoardText(ctx, rect, p.x, p.y, obj);
-    if (highlighted) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, size * 0.05, 0, Math.PI * 2);
-      ctx.strokeStyle = "#ffd54f";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
+    if (highlighted) drawSelectionRing(ctx, p.x, p.y, size * 0.055);
     return;
   }
 
   const r = size * 0.048;
-  if (highlighted) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
-    ctx.strokeStyle = "#ffd54f";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-  }
+  if (highlighted) drawSelectionRing(ctx, p.x, p.y, r + 6);
   ctx.beginPath();
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
   ctx.fillStyle = obj.color;
@@ -1354,6 +1450,20 @@ function drawObject(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(obj.label.slice(0, 4), p.x, p.y);
+
+  const badge = poseShort(pose);
+  if (badge) {
+    const br = Math.max(8, r * 0.4);
+    const bx = p.x + r * 0.78;
+    const by = p.y - r * 0.78;
+    ctx.beginPath();
+    ctx.arc(bx, by, br, 0, Math.PI * 2);
+    ctx.fillStyle = ACCENT;
+    ctx.fill();
+    ctx.fillStyle = LABEL_ON_LIGHT;
+    ctx.font = `700 ${Math.max(8, br * 0.95)}px system-ui, sans-serif`;
+    ctx.fillText(badge, bx, by);
+  }
 }
 
 function textFontPx(rect: CourtRect, obj: CourtObject) {
