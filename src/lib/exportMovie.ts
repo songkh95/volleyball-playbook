@@ -3,7 +3,18 @@ import type { CourtObject, Cut, PlayerPose, Stroke } from "../types/play";
 import { playheadFromTime, timelineDurationSec, viewAtPlayhead, type Trail } from "./interpolate";
 import { poseMapAtPlayhead } from "./playerPose";
 
-export const EXPORT_FPS = 24;
+export const EXPORT_FPS = 30;
+export const EXPORT_GIF_FPS = 20;
+export const EXPORT_WIDTH = 720;
+export const EXPORT_GIF_WIDTH = 540;
+
+export function exportMaxWidth(kind: "gif" | "video"): number {
+  return kind === "gif" ? EXPORT_GIF_WIDTH : EXPORT_WIDTH;
+}
+
+export function exportFps(kind: "gif" | "video"): number {
+  return kind === "gif" ? EXPORT_GIF_FPS : EXPORT_FPS;
+}
 
 export type MovieView = {
   objects: CourtObject[];
@@ -71,8 +82,8 @@ export async function encodeGif(frames: ImageData[], fps = EXPORT_FPS): Promise<
   const delay = Math.round(1000 / fps);
   for (let i = 0; i < frames.length; i++) {
     const frame = frames[i];
-    const palette = quantize(frame.data, 256);
-    const index = applyPalette(frame.data, palette);
+    const palette = quantize(frame.data, 256, { format: "rgb565" });
+    const index = applyPalette(frame.data, palette, "rgb565");
     gif.writeFrame(index, frame.width, frame.height, {
       palette,
       delay,
@@ -116,7 +127,7 @@ export async function recordVideo(
     stream = canvas.captureStream(fps);
   }
 
-  const rec = makeRecorder(stream, format);
+  const rec = makeRecorder(stream, format, frames[0].width, frames[0].height, fps);
   const chunks: Blob[] = [];
   const done = new Promise<Blob>((resolve, reject) => {
     rec.ondataavailable = (e) => {
@@ -167,18 +178,37 @@ export async function recordVideo(
   }
 }
 
-function makeRecorder(stream: MediaStream, format: VideoFormat) {
+function makeRecorder(
+  stream: MediaStream,
+  format: VideoFormat,
+  width: number,
+  height: number,
+  fps: number,
+) {
+  const videoBitsPerSecond = Math.min(
+    12_000_000,
+    Math.max(6_000_000, Math.round(width * height * fps * 0.45)),
+  );
+  const opts: MediaRecorderOptions = { videoBitsPerSecond };
   try {
     return format.mime
-      ? new MediaRecorder(stream, { mimeType: format.mime, videoBitsPerSecond: 1_200_000 })
-      : new MediaRecorder(stream, { videoBitsPerSecond: 1_200_000 });
+      ? new MediaRecorder(stream, { ...opts, mimeType: format.mime })
+      : new MediaRecorder(stream, opts);
   } catch {
-    return new MediaRecorder(stream);
+    try {
+      return new MediaRecorder(stream, opts);
+    } catch {
+      return new MediaRecorder(stream);
+    }
   }
 }
 
-function wait(ms: number) {
+export function waitMs(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+function wait(ms: number) {
+  return waitMs(ms);
 }
 
 export function yieldToUi() {

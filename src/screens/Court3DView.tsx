@@ -34,13 +34,11 @@ import { COURT_FILL } from "../design/tokens";
 import { courtMeters } from "../lib/defaultPlay";
 import { coverageRadius, defaultCoverageOn, isOpponent } from "../lib/inspect";
 import { getConeSprite, loadConeSprite } from "../lib/coneSprite";
-import { yieldToUi } from "../lib/exportMovie";
+import { yieldToUi, EXPORT_WIDTH } from "../lib/exportMovie";
 import { viewAtPlayhead, type Trail } from "../lib/interpolate";
-import type { CourtObject, CourtType, Cut, Stroke, ZoneMode } from "../types/play";
+import type { CourtObject, CourtType, Cut, PlayerPose, Stroke, ZoneMode } from "../types/play";
 import { zoneCells } from "../lib/zones";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
-
-const EXPORT_WIDTH = 480;
 
 type ThreeApi = {
   gl: THREE.WebGLRenderer;
@@ -50,7 +48,7 @@ type ThreeApi = {
 
 export type Court3DHandle = {
   toPngBlob: () => Promise<Blob>;
-  captureViews: (playheads: number[]) => Promise<ImageData[]>;
+  captureViews: (playheads: number[], maxWidth?: number) => Promise<ImageData[]>;
 };
 
 type Props = {
@@ -67,9 +65,11 @@ type Props = {
   cameraPreset: CameraCorner;
   cameraNonce: number;
   interactive?: boolean;
+  placingId?: string | null;
   onMove?: (id: string, x: number, y: number) => void;
   onMoveBegin?: () => void;
   onSelectPlayer?: (id: string) => void;
+  onPlacePlayer?: (id: string) => void;
   onPointerStart?: () => void;
 };
 
@@ -96,14 +96,14 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
 
   useImperativeHandle(ref, () => ({
     toPngBlob: () => grabPng(apiRef.current),
-    async captureViews(playheads) {
+    async captureViews(playheads, maxWidth = EXPORT_WIDTH) {
       const frames: ImageData[] = [];
       try {
         for (let i = 0; i < playheads.length; i++) {
           exportHeadRef.current = playheads[i];
           flushSync(() => setTick((n) => n + 1));
-          await waitFrames(2);
-          frames.push(grabFrame(apiRef.current));
+          await waitFrames(i === 0 ? 4 : 2);
+          frames.push(grabFrame(apiRef.current, maxWidth));
           if (i % 2 === 1) await yieldToUi();
         }
       } finally {
@@ -117,7 +117,11 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
   const pose = getCameraPose(props.cameraPreset, props.court);
 
   return (
-    <div className="absolute inset-0" style={{ background: "#5d6774" }}>
+    <div
+      className="absolute inset-0"
+      style={{ background: "#5d6774" }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <Canvas
         className="absolute inset-0 h-full w-full touch-none"
         style={{ width: "100%", height: "100%", display: "block" }}
@@ -175,14 +179,14 @@ function grabPng(api: ThreeApi | null) {
   });
 }
 
-function grabFrame(api: ThreeApi | null) {
+function grabFrame(api: ThreeApi | null, maxWidth = EXPORT_WIDTH) {
   if (!api) throw new Error("3D 코트를 캡처할 수 없습니다.");
   api.gl.render(api.scene, api.camera);
   const src = api.gl.domElement;
   if (src.width < 8 || src.height < 8) {
     throw new Error("3D 코트를 캡처할 수 없습니다.");
   }
-  const scale = Math.min(1, EXPORT_WIDTH / src.width);
+  const scale = Math.min(1, maxWidth / src.width);
   const w = Math.max(1, Math.round(src.width * scale));
   const h = Math.max(1, Math.round(src.height * scale));
   const off = document.createElement("canvas");
@@ -190,6 +194,8 @@ function grabFrame(api: ThreeApi | null) {
   off.height = h;
   const ctx = off.getContext("2d", { alpha: false });
   if (!ctx) throw new Error("3D 코트를 캡처할 수 없습니다.");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.fillStyle = "#5d6774";
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(src, 0, 0, w, h);
@@ -216,20 +222,53 @@ function waitFrames(count: number) {
 function Scene(props: Props) {
   const [dragId, setDragId] = useState<string | null>(null);
   const dragBegan = useRef(false);
+  const longPressRef = useRef(0);
   const ball = useMemo(
     () => ballPoseAtPlayhead(props.cuts, props.playhead, props.court),
     [props.cuts, props.playhead, props.court],
   );
   const interactive = Boolean(props.interactive);
   const ballObj = props.objects.find((o) => o.kind === "ball");
+  const placingId = props.placingId ?? null;
+  const placing = Boolean(placingId);
+  const focusPlayer = placingId
+    ? props.objects.find((o) => o.id === placingId && o.kind === "player")
+    : undefined;
+  const focusWorld = focusPlayer
+    ? courtToWorld(focusPlayer.x, focusPlayer.y, props.court)
+    : null;
+
+  useEffect(() => {
+    return () => {
+      if (longPressRef.current) window.clearTimeout(longPressRef.current);
+    };
+  }, []);
+
+  function clearLongPress() {
+    if (longPressRef.current) {
+      window.clearTimeout(longPressRef.current);
+      longPressRef.current = 0;
+    }
+  }
 
   function beginDrag(id: string) {
+    if (placingId && id !== placingId) return;
     props.onPointerStart?.();
     dragBegan.current = false;
     setDragId(id);
   }
 
+  function armPlace(id: string, pointerType: string) {
+    clearLongPress();
+    if (placingId || (pointerType !== "touch" && pointerType !== "pen")) return;
+    longPressRef.current = window.setTimeout(() => {
+      longPressRef.current = 0;
+      props.onPlacePlayer?.(id);
+    }, 500);
+  }
+
   function moveDrag(id: string, x: number, y: number) {
+    clearLongPress();
     if (!dragBegan.current) {
       dragBegan.current = true;
       props.onMoveBegin?.();
@@ -240,16 +279,35 @@ function Scene(props: Props) {
   return (
     <>
       <color attach="background" args={["#5d6774"]} />
-      <hemisphereLight args={["#f2f4f8", "#8a7a62", 1.05]} />
-      <ambientLight intensity={0.72} />
-      <directionalLight position={[8, 18, 10]} intensity={1.75} />
-      <directionalLight position={[-10, 8, -6]} intensity={0.55} />
+      <hemisphereLight args={["#f2f4f8", "#8a7a62", placing ? 0.28 : 1.05]} />
+      <ambientLight intensity={placing ? 0.18 : 0.72} />
+      <directionalLight position={[8, 18, 10]} intensity={placing ? 0.32 : 1.75} />
+      <directionalLight position={[-10, 8, -6]} intensity={placing ? 0.12 : 0.55} />
+      {focusWorld ? (
+        <pointLight
+          position={[focusWorld.x, 2.6, focusWorld.z]}
+          intensity={2.6}
+          distance={5.5}
+          color="#ffffff"
+        />
+      ) : null}
       <Gym court={props.court} />
       <CourtSurface court={props.court} />
+      {placing ? (
+        <mesh
+          rotation={[-Math.PI / 2, 0, 0]}
+          position={[0, 0.02, 0]}
+          renderOrder={8}
+          raycast={() => {}}
+        >
+          <planeGeometry args={[48, 48]} />
+          <meshBasicMaterial color="#000000" transparent opacity={0.52} depthWrite={false} />
+        </mesh>
+      ) : null}
       <CourtLines court={props.court} />
       <ZoneGuides court={props.court} mode={props.zoneMode ?? "none"} />
       <Net court={props.court} />
-      {props.showCoverage
+      {props.showCoverage && !placing
         ? props.objects
             .filter((o) => o.kind === "player" && defaultCoverageOn(o))
             .map((o) => (
@@ -277,8 +335,18 @@ function Scene(props: Props) {
             key={o.id}
             onPointerDown={(e) => {
               if (!interactive) return;
+              if (placingId && o.id !== placingId) return;
               e.stopPropagation();
+              armPlace(o.id, e.nativeEvent.pointerType);
               beginDrag(o.id);
+            }}
+            onPointerUp={clearLongPress}
+            onPointerCancel={clearLongPress}
+            onContextMenu={(e) => {
+              e.stopPropagation();
+              e.nativeEvent.preventDefault();
+              if (!interactive || placingId) return;
+              props.onPlacePlayer?.(o.id);
             }}
           >
             <PlayerFigure
@@ -287,12 +355,8 @@ function Scene(props: Props) {
               highlight={
                 ball?.playerId === o.id && ball.zone !== "air" ? ball.zone : null
               }
-              action={
-                (() => {
-                  const pose = playerActionPose(props.cuts, props.playhead, o.id);
-                  return pose === "spike" || pose === "receive" ? pose : null;
-                })()
-              }
+              action={playerActionPose(props.cuts, props.playhead, o.id) ?? "idle"}
+              dimmed={placing && o.id !== placingId}
             />
           </group>
         ))}
@@ -302,7 +366,7 @@ function Scene(props: Props) {
           <group
             key={o.id}
             onPointerDown={(e) => {
-              if (!interactive) return;
+              if (!interactive || placing) return;
               e.stopPropagation();
               beginDrag(o.id);
             }}
@@ -316,7 +380,7 @@ function Scene(props: Props) {
           <group
             key={o.id}
             onPointerDown={(e) => {
-              if (!interactive) return;
+              if (!interactive || placing) return;
               e.stopPropagation();
               beginDrag(o.id);
             }}
@@ -326,11 +390,11 @@ function Scene(props: Props) {
         ))}
       {ball ? (
         <group
-          onPointerDown={(e) => {
-            if (!interactive || !ballObj) return;
-            e.stopPropagation();
-            beginDrag(ballObj.id);
-          }}
+            onPointerDown={(e) => {
+              if (!interactive || !ballObj || placing) return;
+              e.stopPropagation();
+              beginDrag(ballObj.id);
+            }}
         >
           <Ball pose={ball} court={props.court} />
         </group>
@@ -348,14 +412,17 @@ function Scene(props: Props) {
         preset={props.cameraPreset}
         court={props.court}
         nonce={props.cameraNonce}
-        enableRotate={!dragId}
+        enableRotate={!dragId && !placing}
       />
       {dragId ? (
         <DragFloor
           court={props.court}
           dragId={dragId}
           onMove={moveDrag}
-          onUp={() => setDragId(null)}
+          onUp={() => {
+            clearLongPress();
+            setDragId(null);
+          }}
         />
       ) : null}
     </>
@@ -946,12 +1013,25 @@ function PlayerLabel({
 
 const SPIKE_GLB = "/models/player-spike.glb";
 const RECEIVE_GLB = "/models/player-receive.glb";
+const SET_GLB = "/models/player-set.glb";
+const IDLE_GLB = "/models/player-idle.glb";
+const BLOCK_GLB = "/models/player-block.glb";
+const POSE_GLB: Record<PlayerPose, string> = {
+  idle: IDLE_GLB,
+  receive: RECEIVE_GLB,
+  set: SET_GLB,
+  spike: SPIKE_GLB,
+  block: BLOCK_GLB,
+};
 /** Mixamo는 +Z가 앞. 우리 엔드가 +Z라서 우리 선수는 네트(-Z)를 보게 π. */
 const SPIKE_FACE_OURS = Math.PI;
 const SPIKE_FACE_OPP = 0;
-const POSE_LABEL_Y: Record<"spike" | "receive", number> = {
-  spike: 2.42,
+const POSE_LABEL_Y: Record<PlayerPose, number> = {
+  idle: 2.08,
   receive: 1.58,
+  set: 2.58,
+  spike: 2.42,
+  block: 2.92,
 };
 /** 물리 반경은 그대로 두고, 3D 공만 절반 크기로 그린다. */
 const BALL_VISUAL_RADIUS = BALL_RADIUS * 0.5;
@@ -999,36 +1079,38 @@ function PlayerPoseModel({ url, color }: { url: string; color: string }) {
 
 useGLTF.preload(SPIKE_GLB);
 useGLTF.preload(RECEIVE_GLB);
+useGLTF.preload(SET_GLB);
+useGLTF.preload(IDLE_GLB);
+useGLTF.preload(BLOCK_GLB);
 
 function PlayerFigure({
   obj,
   court,
   highlight,
   action,
+  dimmed = false,
 }: {
   obj: CourtObject;
   court: CourtType;
   highlight: "upper" | "lower" | null;
-  action: "spike" | "receive" | null;
+  action: PlayerPose;
+  dimmed?: boolean;
 }) {
   const { x, z } = courtToWorld(obj.x, obj.y, court);
   const yaw = isOpponent(obj) ? SPIKE_FACE_OPP : SPIKE_FACE_OURS;
-  if (action === "spike" || action === "receive") {
-    const url = action === "spike" ? SPIKE_GLB : RECEIVE_GLB;
-    return (
-      <group position={[x, 0, z]} rotation={[0, yaw, 0]}>
-        <Suspense
-          fallback={
-            <PlayerCylinderBody obj={obj} highlight={highlight} />
-          }
-        >
-          <PlayerPoseModel url={url} color={obj.color} />
-        </Suspense>
-        <PlayerLabel label={obj.label} color={obj.color} y={POSE_LABEL_Y[action]} />
-      </group>
-    );
-  }
-  return <PlayerCylinder obj={obj} court={court} highlight={highlight} />;
+  const tint = dimmed ? shadeHex(obj.color, -0.72) : obj.color;
+  return (
+    <group position={[x, 0, z]} rotation={[0, yaw, 0]}>
+      <Suspense
+        fallback={
+          <PlayerCylinderBody obj={{ ...obj, color: tint }} highlight={dimmed ? null : highlight} />
+        }
+      >
+        <PlayerPoseModel url={POSE_GLB[action]} color={tint} />
+      </Suspense>
+      <PlayerLabel label={obj.label} color={tint} y={POSE_LABEL_Y[action]} />
+    </group>
+  );
 }
 
 function PlayerCylinderBody({
@@ -1066,24 +1148,6 @@ function PlayerCylinderBody({
         <ringGeometry args={[PLAYER_RADIUS * 0.82, PLAYER_RADIUS + 0.012, 24]} />
         <meshBasicMaterial color="#0b0b0b" />
       </mesh>
-    </group>
-  );
-}
-
-function PlayerCylinder({
-  obj,
-  court,
-  highlight,
-}: {
-  obj: CourtObject;
-  court: CourtType;
-  highlight: "upper" | "lower" | null;
-}) {
-  const { x, z } = courtToWorld(obj.x, obj.y, court);
-  return (
-    <group position={[x, 0, z]}>
-      <PlayerCylinderBody obj={obj} highlight={highlight} />
-      <PlayerLabel label={obj.label} color={obj.color} y={PLAYER_HEIGHT + 0.28} />
     </group>
   );
 }

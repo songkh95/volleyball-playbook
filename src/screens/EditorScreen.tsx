@@ -14,15 +14,18 @@ import { ZoneModal } from "../components/ZoneModal";
 import { CourtModal } from "../components/CourtModal";
 import { Modal } from "../components/Modal";
 import { downloadBlob, downloadPng, fileSafeName } from "../lib/capture";
-import { duplicatePlay, nextCutName, netYNorm, remapPlayToCourt, sceneLabel, SCENE_NAME_CHIPS } from "../lib/defaultPlay";
+import { duplicatePlay, nextCutName, remapPlayToCourt, sceneLabel, SCENE_NAME_CHIPS } from "../lib/defaultPlay";
 import { saveCapture, savePlay } from "../lib/db";
 import { registerBackHandler } from "../lib/backHandlers";
 import {
   detectVideoFormat,
   encodeGif,
+  exportFps,
+  exportMaxWidth,
   moviePlayheads,
   movieViews,
   recordVideo,
+  waitMs,
 } from "../lib/exportMovie";
 import { uid } from "../lib/id";
 import { cloneCutAfter, cutDurationMs, playheadFromTime, timeFromPlayhead, timelineDurationSec, viewAtPlayhead } from "../lib/interpolate";
@@ -38,7 +41,7 @@ import {
   nudgeFanSpread,
   withCoverageDefaults,
 } from "../lib/inspect";
-import { applyUserPreset, newCone, newPlayer, newText } from "../lib/presets";
+import { applyUserPreset, newCone, newPlayer, newText, spawnPointForTeam } from "../lib/presets";
 import { applyManualPoseToCuts, playerPoseLeadIn, playerPoseOnCut, poseMapAtPlayhead } from "../lib/playerPose";
 import { PEN_COLORS, strokeNearPoint } from "../lib/stroke";
 import {
@@ -122,9 +125,17 @@ export function EditorScreen({
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [exportSource, setExportSource] = useState<"2d" | "3d">("2d");
+  const [exportKind, setExportKind] = useState<"gif" | "video">("gif");
+  const [exportNeed3d, setExportNeed3d] = useState(false);
   const [view3d, setView3d] = useState(false);
   const [cameraPreset, setCameraPreset] = useState<CameraCorner>("bl");
   const [cameraNonce, setCameraNonce] = useState(0);
+  const [placing, setPlacing] = useState<{
+    ids: string[];
+    index: number;
+    fresh: boolean;
+  } | null>(null);
   const canvasRef = useRef<CourtCanvasHandle>(null);
   const court3dRef = useRef<Court3DHandle>(null);
   const view3dRef = useRef(false);
@@ -146,6 +157,7 @@ export function EditorScreen({
   const clipboardRef = useRef<CourtObject[] | null>(null);
   const editingIdRef = useRef<string | null>(null);
   const selectedIdsRef = useRef<string[]>([]);
+  const placingRef = useRef<typeof placing>(null);
   const [undoCount, setUndoCount] = useState(0);
   const [redoCount, setRedoCount] = useState(0);
   playheadRef.current = playhead;
@@ -155,8 +167,10 @@ export function EditorScreen({
   view3dRef.current = view3d;
   editingIdRef.current = editingId;
   selectedIdsRef.current = selectedIds;
+  placingRef.current = placing;
 
   const lastCut = Math.max(0, play.cuts.length - 1);
+  const placingId = placing ? placing.ids[placing.index] ?? null : null;
   const view = useMemo(
     () => viewAtPlayhead(play.cuts, playhead),
     [play.cuts, playhead],
@@ -329,9 +343,24 @@ export function EditorScreen({
 
   function moveObjects(moves: { id: string; x: number; y: number }[]) {
     const current = playRef.current;
+    if (moves.length === 0) return;
+    const session = placingRef.current;
+    const placingNow = session?.ids[session.index];
+    const placeMove = placingNow ? moves.find((m) => m.id === placingNow) : undefined;
+    if (placeMove) {
+      updatePlay(
+        current.cuts.map((c) => ({
+          ...c,
+          objects: c.objects.map((o) =>
+            o.id === placeMove.id ? { ...o, x: placeMove.x, y: placeMove.y } : o,
+          ),
+        })),
+      );
+      return;
+    }
     const i = editCutIndex();
     const cut = current.cuts[i];
-    if (!cut || moves.length === 0) return;
+    if (!cut) return;
     const map = new Map(moves.map((m) => [m.id, m]));
     updatePlay(
       current.cuts.map((c, idx) =>
@@ -349,6 +378,7 @@ export function EditorScreen({
   }
 
   function selectObject(id: string | null, additive = false) {
+    if (placingRef.current) return;
     if (!id) {
       setEditingId(null);
       setSelectedIds([]);
@@ -369,6 +399,7 @@ export function EditorScreen({
   }
 
   function selectIds(ids: string[]) {
+    if (placingRef.current) return;
     setSelectedIds(ids);
     setEditingId(ids[ids.length - 1] ?? null);
     if (ids.length < 2) setSelectMenu(null);
@@ -532,25 +563,15 @@ export function EditorScreen({
   }
 
   function addPlayers(drafts: NewPlayerDraft[]) {
-    if (drafts.length === 0) return;
+    if (drafts.length === 0 || placingRef.current) return;
     pushUndo();
     const current = playRef.current;
-    const net = netYNorm(current.court);
-    const oursDrafts = drafts.filter((d) => d.team !== "opp");
-    const oppDrafts = drafts.filter((d) => d.team === "opp");
-    function xs(count: number) {
-      if (count <= 1) return [0.5];
-      return Array.from({ length: count }, (_, i) => 0.18 + (0.64 * i) / (count - 1));
-    }
-    const oursX = xs(oursDrafts.length);
-    const oppX = xs(oppDrafts.length);
-    let oi = 0;
-    let pi = 0;
+    const existing: CourtObject[] = [...(current.cuts[editCutIndex()]?.objects ?? [])];
     const created = drafts.map((draft) => {
-      const ours = draft.team !== "opp";
-      const y = ours ? net * 0.28 : net + (1 - net) * 0.42;
-      const x = ours ? oursX[oi++] : oppX[pi++];
-      return newPlayer(current.court, { ...draft, x, y });
+      const spawn = spawnPointForTeam(current.court, draft.team, existing);
+      const player = newPlayer(current.court, { ...draft, x: spawn.x, y: spawn.y });
+      existing.push(player);
+      return player;
     });
     updatePlay(
       current.cuts.map((c) => ({
@@ -559,8 +580,68 @@ export function EditorScreen({
       })),
     );
     setAddPlayerOpen(false);
-    setEditingId(created[created.length - 1]?.id ?? null);
-    setSelectedIds(created.map((p) => p.id));
+    setPlaying(false);
+    const i = editCutIndex();
+    playheadRef.current = i;
+    setPlayhead(i);
+    setEditingId(null);
+    setSelectedIds([created[0].id]);
+    setPlacing({ ids: created.map((p) => p.id), index: 0, fresh: true });
+  }
+
+  function startReplacing(id: string) {
+    if (placingRef.current) return;
+    const obj = playRef.current.cuts[editCutIndex()]?.objects.find((o) => o.id === id);
+    if (!obj || obj.kind !== "player") return;
+    pushUndo();
+    setPlaying(false);
+    const i = editCutIndex();
+    playheadRef.current = i;
+    setPlayhead(i);
+    setEditingId(null);
+    setSelectedIds([id]);
+    setPlacing({ ids: [id], index: 0, fresh: false });
+  }
+
+  function confirmPlacing() {
+    const session = placingRef.current;
+    if (!session) return;
+    if (session.index + 1 < session.ids.length) {
+      const next = session.index + 1;
+      setPlacing({ ...session, index: next });
+      setSelectedIds([session.ids[next]]);
+      return;
+    }
+    setPlacing(null);
+  }
+
+  function cancelPlacing() {
+    const session = placingRef.current;
+    if (!session) return;
+    const current = playRef.current;
+    if (session.fresh && session.index === 0) {
+      const prev = undoRef.current.pop();
+      if (prev) {
+        setUndoCount(undoRef.current.length);
+        restorePlay(prev);
+      }
+    } else if (session.fresh) {
+      const drop = new Set(session.ids.slice(session.index));
+      updatePlay(
+        current.cuts.map((c) => ({
+          ...c,
+          objects: c.objects.filter((o) => !drop.has(o.id)),
+        })),
+      );
+    } else {
+      const prev = undoRef.current.pop();
+      if (prev) {
+        setUndoCount(undoRef.current.length);
+        restorePlay(prev);
+      }
+    }
+    setPlacing(null);
+    setSelectedIds([]);
   }
 
   function addCone() {
@@ -741,12 +822,12 @@ export function EditorScreen({
   }, [onBack]);
 
   useEffect(() => {
-    if (!selectMenu) return;
+    if (!placing) return;
     return registerBackHandler(() => {
-      setSelectMenu(null);
+      cancelPlacing();
       return true;
     });
-  }, [selectMenu]);
+  }, [placing]);
 
   useEffect(() => {
     function typing(target: EventTarget | null) {
@@ -757,6 +838,20 @@ export function EditorScreen({
     }
     function onKey(e: KeyboardEvent) {
       if (typing(e.target)) return;
+      if (placingRef.current) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelPlacing();
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          confirmPlacing();
+          return;
+        }
+        e.preventDefault();
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -843,17 +938,36 @@ export function EditorScreen({
     }
   }
 
-  async function exportTimeline(kind: "gif" | "video") {
+  async function exportTimeline() {
     if (exportBusy) return;
+    const source = exportSource;
+    const kind = exportKind;
+    if (kind === "video" && !detectVideoFormat()) return;
     setPlaying(false);
     setExportBusy(true);
+    const mount3d = source === "3d" && !view3dRef.current;
+    if (mount3d) setExportNeed3d(true);
     try {
+      if (source === "3d") {
+        const readyAt = Date.now() + 5000;
+        while (!court3dRef.current && Date.now() < readyAt) {
+          await waitMs(50);
+        }
+        if (!court3dRef.current) {
+          throw new Error("3D 코트를 캡처할 수 없습니다.");
+        }
+        await waitMs(mount3d ? 900 : 120);
+      }
       const current = playRef.current;
-      const frames = view3dRef.current
-        ? await court3dRef.current?.captureViews(moviePlayheads(current.cuts))
-        : await canvasRef.current?.captureViews(
-            movieViews(current.cuts, showTrails),
-          );
+      const fps = exportFps(kind);
+      const maxWidth = exportMaxWidth(kind);
+      const frames =
+        source === "3d"
+          ? await court3dRef.current?.captureViews(moviePlayheads(current.cuts, fps), maxWidth)
+          : await canvasRef.current?.captureViews(
+              movieViews(current.cuts, showTrails, fps),
+              maxWidth,
+            );
       if (!frames?.length) {
         throw new Error("코트를 캡처할 수 없습니다.");
       }
@@ -862,24 +976,26 @@ export function EditorScreen({
       let blob: Blob;
       let ext: string;
       if (kind === "gif") {
-        blob = await encodeGif(frames);
+        blob = await encodeGif(frames, fps);
         ext = "gif";
       } else {
-        const recorded = await recordVideo(frames);
+        const recorded = await recordVideo(frames, fps);
         blob = recorded.blob;
         ext = recorded.ext;
       }
+      const viewLabel = source === "3d" ? "3D" : "2D";
+      const kindLabel = kind === "gif" ? "GIF" : ext.toUpperCase();
       await saveCapture({
         id: uid(),
         playId: playRef.current.id,
         playTitle: playRef.current.title,
-        cutName: kind === "gif" ? "GIF" : "영상",
+        cutName: `${viewLabel} ${kindLabel}`,
         createdAt: Date.now(),
         blob,
       });
       downloadBlob(
         blob,
-        `${fileSafeName(playRef.current.title)}-timeline-${time}`,
+        `${fileSafeName(playRef.current.title)}-${source}-${time}`,
         ext,
       );
       setExportOpen(false);
@@ -888,6 +1004,7 @@ export function EditorScreen({
       setCaptureNotice(err instanceof Error ? err.message : "저장에 실패했습니다.");
     } finally {
       setExportBusy(false);
+      setExportNeed3d(false);
     }
   }
 
@@ -919,7 +1036,11 @@ export function EditorScreen({
         <button
           type="button"
           className="rounded-xl px-3 py-2 text-sm text-white/85"
-          onClick={() => setExportOpen(true)}
+          onClick={() => {
+            setExportSource(view3d ? "3d" : "2d");
+            setExportKind(detectVideoFormat() ? "video" : "gif");
+            setExportOpen(true);
+          }}
         >
           영상
         </button>
@@ -1274,13 +1395,13 @@ export function EditorScreen({
             onClick={() => setToolsMenuOpen(false)}
           />
         ) : null}
-        <div className={view3d ? "hidden" : "h-full"}>
+        <div className={view3d || exportNeed3d ? "invisible pointer-events-none absolute inset-0" : "h-full"}>
           <CourtCanvas
             ref={canvasRef}
             court={play.court}
             objects={view.objects}
             poseByPlayerId={poseByPlayerId}
-            trails={showTrails ? view.trails : []}
+            trails={placingId || !showTrails ? [] : view.trails}
             strokes={view.strokes}
             zoneMode={zoneMode}
             tool={tool}
@@ -1288,6 +1409,7 @@ export function EditorScreen({
             drawKind={drawKind}
             interactive={!playing && !view3d}
             selectedIds={selectedIds}
+            placingId={placingId}
             showCoverage={inspecting && inspectShowCoverage}
             holeAlpha={playing ? 0 : holeAlpha}
             onPointerStart={() => {
@@ -1296,10 +1418,13 @@ export function EditorScreen({
               playheadRef.current = i;
               setPlayhead(i);
             }}
-            onMoveBegin={pushUndo}
+            onMoveBegin={() => {
+              if (!placingRef.current) pushUndo();
+            }}
             onMove={moveObject}
             onMoveMany={moveObjects}
             onSelectPlayer={selectObject}
+            onPlacePlayer={startReplacing}
             onSelectIds={selectIds}
             onSelectNone={() => selectObject(null)}
             onSelectionMenu={(pos) => {
@@ -1315,32 +1440,38 @@ export function EditorScreen({
             onEraseAt={eraseAt}
           />
         </div>
-        {view3d ? (
-          <div className="absolute inset-0 z-10 h-full w-full">
+        {view3d || exportNeed3d ? (
+          <div className={`absolute inset-0 h-full w-full ${view3d ? "z-10" : "z-[5]"}`}>
             <Court3DView
               ref={court3dRef}
               court={play.court}
               objects={view.objects}
               cuts={play.cuts}
               playhead={playhead}
-              trails={showTrails ? view.trails : []}
+              trails={placingId || !showTrails ? [] : view.trails}
               strokes={view.strokes}
-              showTrails={showTrails}
+              showTrails={showTrails && !placingId}
               showCoverage={inspecting && inspectShowCoverage}
               zoneMode={zoneMode}
               holeAlpha={playing ? 0 : holeAlpha}
-              interactive={!playing}
+              interactive={!playing && view3d}
+              placingId={placingId}
               onPointerStart={() => {
                 setPlaying(false);
                 const i = Math.min(lastCut, Math.max(0, Math.round(playheadRef.current)));
                 playheadRef.current = i;
                 setPlayhead(i);
               }}
-              onMoveBegin={pushUndo}
+              onMoveBegin={() => {
+                if (!placingRef.current) pushUndo();
+              }}
               onMove={moveObject}
+              onPlacePlayer={startReplacing}
               cameraPreset={cameraPreset}
               cameraNonce={cameraNonce}
             />
+            {view3d ? (
+              <>
             <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center px-2">
               <div className="pointer-events-auto flex flex-wrap justify-center gap-1 rounded-xl glass p-1">
                 {cameraPresets(play.court).map((item) => (
@@ -1362,9 +1493,47 @@ export function EditorScreen({
                 ))}
               </div>
             </div>
+            {!placingId ? (
             <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[10px] text-white/70">
               드래그로 선수·공을 옮깁니다. 빈 곳을 드래그하면 카메라가 돕니다.
             </p>
+            ) : null}
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {placingId ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center px-3">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-2xl glass-bar px-2 py-2">
+              <p className="px-2 text-xs text-white/80">
+                {placing && placing.ids.length > 1
+                  ? `처음 위치 ${placing.index + 1}/${placing.ids.length}`
+                  : "처음 위치 지정"}
+              </p>
+              <button
+                type="button"
+                className="rounded-xl px-3 py-2 text-sm text-white/80 ring-1 ring-line"
+                onClick={cancelPlacing}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-ink"
+                aria-label="위치 확정"
+                onClick={confirmPlacing}
+              >
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" aria-hidden="true">
+                  <path
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 12.5l5 5L19 7"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
         ) : null}
         {exportBusy ? (
@@ -1720,7 +1889,11 @@ export function EditorScreen({
         onCreate={addPlayers}
       />
       <EditPlayerModal
-        object={!view3d && selectedIds.length <= 1 && editing?.kind === "player" ? editing : null}
+        object={
+          !placingId && !view3d && selectedIds.length <= 1 && editing?.kind === "player"
+            ? editing
+            : null
+        }
         activePose={editingPlayerPose}
         onClose={() => setEditingId(null)}
         onSave={(patch) => {
@@ -1891,46 +2064,95 @@ export function EditorScreen({
         onClose={exportBusy ? undefined : () => setExportOpen(false)}
       >
         <p className="mb-4 text-sm leading-relaxed text-white/70">
-          타임라인을 재생한 결과를 GIF나 영상 파일로 저장합니다. 3D 보기 중이면 3D
-          화면으로 저장됩니다. 갤러리에서도 볼 수 있습니다.
+          타임라인을 재생한 화면을 저장합니다. 갤러리에서도 볼 수 있습니다.
           {play.cuts.length <= 1
             ? " 장면이 하나면 1초 동안 같은 모습이 저장됩니다."
             : ""}
         </p>
-        <div className="grid gap-2">
-          <button
-            type="button"
-            className="rounded-xl bg-accent py-3 font-semibold text-ink disabled:opacity-40"
+        <p className="mb-2 text-sm text-white/70">화면</p>
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <ExportPick
+            active={exportSource === "2d"}
             disabled={exportBusy}
-            onClick={() => void exportTimeline("gif")}
+            onClick={() => setExportSource("2d")}
           >
-            {exportBusy ? "만드는 중…" : "GIF로 저장"}
-          </button>
-          {detectVideoFormat() ? (
-            <button
-              type="button"
-              className="rounded-xl border border-white/40 bg-ink py-3 text-white/85 disabled:opacity-40"
-              disabled={exportBusy}
-              onClick={() => void exportTimeline("video")}
-            >
-              영상 파일로 저장
-            </button>
-          ) : (
-            <p className="px-1 text-xs leading-relaxed text-white/45">
-              이 브라우저에서는 영상 파일 저장을 지원하지 않습니다. GIF로 저장해 주세요.
-            </p>
-          )}
+            2D
+          </ExportPick>
+          <ExportPick
+            active={exportSource === "3d"}
+            disabled={exportBusy}
+            onClick={() => setExportSource("3d")}
+          >
+            3D
+          </ExportPick>
+        </div>
+        <p className="mb-2 text-sm text-white/70">형식</p>
+        <div className="mb-5 grid grid-cols-2 gap-2">
+          <ExportPick
+            active={exportKind === "gif"}
+            disabled={exportBusy}
+            onClick={() => setExportKind("gif")}
+          >
+            GIF
+          </ExportPick>
+          <ExportPick
+            active={exportKind === "video"}
+            disabled={exportBusy || !detectVideoFormat()}
+            onClick={() => setExportKind("video")}
+          >
+            {detectVideoFormat()?.ext === "mp4" ? "MP4" : "영상"}
+          </ExportPick>
+        </div>
+        {!detectVideoFormat() ? (
+          <p className="mb-4 px-1 text-xs leading-relaxed text-white/45">
+            이 브라우저에서는 MP4 저장을 지원하지 않습니다. GIF로 저장해 주세요.
+          </p>
+        ) : null}
+        <div className="flex gap-2">
           <button
             type="button"
-            className="rounded-xl py-3 text-sm text-white/60 disabled:opacity-40"
+            className="flex-1 rounded-xl py-3 text-sm text-white/80 ring-1 ring-line disabled:opacity-40"
             disabled={exportBusy}
             onClick={() => setExportOpen(false)}
           >
             닫기
           </button>
+          <button
+            type="button"
+            className="flex-1 rounded-xl bg-accent py-3 font-semibold text-ink disabled:opacity-40"
+            disabled={exportBusy || (exportKind === "video" && !detectVideoFormat())}
+            onClick={() => void exportTimeline()}
+          >
+            {exportBusy ? "만드는 중…" : "저장"}
+          </button>
         </div>
       </Modal>
     </div>
+  );
+}
+
+function ExportPick({
+  active,
+  disabled,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-xl py-3 text-sm font-medium ring-1 disabled:opacity-40 ${
+        active ? "bg-accent text-ink ring-accent" : "bg-ink text-white/80 ring-line"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

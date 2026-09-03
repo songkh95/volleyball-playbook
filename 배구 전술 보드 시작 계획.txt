@@ -1,3 +1,5 @@
+※ 정리된 설명서는 docs/ 폴더. 이 파일의 마크다운 버전은 docs/start-plan.md.
+
 배구 전술 보드 — 시작 계획
 (Volleyball Playbook & Animator)
 

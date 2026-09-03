@@ -3,6 +3,22 @@ import { TEAM_BLUE, TEAM_RED, type CourtObject, type CourtType, type PlayerTeam 
 import { netYNorm, remapObjectsToCourt } from "./defaultPlay";
 import { uid } from "./id";
 
+export function spawnPointForTeam(
+  court: CourtType,
+  team: PlayerTeam,
+  existing: CourtObject[],
+): { x: number; y: number } {
+  const net = netYNorm(court);
+  const y = team === "opp" ? (net + 1) / 2 : net * 0.42;
+  const occupied = existing.filter((o) => o.kind === "player");
+  for (let n = 0; n < 11; n++) {
+    const offset = Math.ceil(n / 2) * 0.1;
+    const x = Math.min(0.86, Math.max(0.14, 0.5 + (n % 2 === 0 ? offset : -offset)));
+    if (!occupied.some((o) => Math.hypot(o.x - x, o.y - y) < 0.07)) return { x, y };
+  }
+  return { x: 0.5, y };
+}
+
 export function newPlayer(
   court: CourtType,
   opts?: {
@@ -15,7 +31,6 @@ export function newPlayer(
     y?: number;
   },
 ): CourtObject {
-  const net = netYNorm(court);
   const colorHint = opts?.color?.toLowerCase() ?? "";
   const team: PlayerTeam =
     opts?.team ??
@@ -25,11 +40,12 @@ export function newPlayer(
   const ours = team !== "opp";
   const color = opts?.color ?? (ours ? TEAM_RED : TEAM_BLUE);
   const coverageOn = opts?.coverageOn ?? ours;
+  const spawn = spawnPointForTeam(court, team, []);
   return {
     id: uid(),
     kind: "player",
-    x: opts?.x ?? 0.5,
-    y: opts?.y ?? (ours ? net * 0.2 : (net + 1) / 2),
+    x: opts?.x ?? spawn.x,
+    y: opts?.y ?? spawn.y,
     label: opts?.label ?? "P",
     color,
     team,

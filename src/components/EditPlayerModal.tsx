@@ -115,11 +115,11 @@ export function EditPlayerModal({
         <>
           <p className="mb-1.5 text-xs font-semibold text-white/50">자세</p>
           <p className="mb-2 text-[11px] leading-relaxed text-white/40">
-            리시브·토스·스파이크 모두 같습니다. 이전부터는 바로 앞 장면 시작부터 이
+            리시브·토스·스파이크·블로킹 모두 같습니다. 이전부터는 바로 앞 장면 시작부터 이
             장면이 끝날 때까지, 이 장면만은 이 장면 시작부터 끝날 때까지 자세를
             유지합니다.
           </p>
-          <div className="mb-3 grid grid-cols-4 gap-1.5">
+          <div className="mb-3 grid grid-cols-3 gap-1.5">
             {PLAYER_POSES.map((item) => (
               <button
                 key={item}

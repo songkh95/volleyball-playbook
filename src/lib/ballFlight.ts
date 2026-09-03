@@ -1,6 +1,8 @@
 import type { BallFlight, CourtObject, CourtType, Cut } from "../types/play";
 import { BALL_RADIUS, NET_HEIGHT, PLAYER_HEIGHT, PLAYER_SPLIT } from "./court3d";
 import { courtMeters, netYNorm } from "./defaultPlay";
+import { isOpponent } from "./inspect";
+import { poseMapAtPlayhead } from "./playerPose";
 
 export type ContactZone = "upper" | "lower" | "air";
 
@@ -17,8 +19,21 @@ export const HEIGHT_AIR = 2.15;
 export const HEIGHT_LOWER_CONTACT = 0.5;
 export const HEIGHT_UPPER_CONTACT =
   PLAYER_SPLIT + (PLAYER_HEIGHT - PLAYER_SPLIT) * 0.55;
-/** player-spike.glb 오른손 높이. 타격 컷에서 공을 손에 맞춤. */
-export const SPIKE_HAND_HEIGHT = 2.08;
+/** player-spike.glb 타격 손(왼손 앞). */
+export const SPIKE_HAND_HEIGHT = 2.28;
+export const SPIKE_HAND_FORWARD = 0.41;
+/**
+ * player-receive.glb 양손 플랫폼.
+ * 손 뼈 ~0.68m, 앞 ~0.57m. 공 중심은 플랫폼 위(시각 반경 포함).
+ */
+export const RECEIVE_HAND_HEIGHT = 0.87;
+export const RECEIVE_HAND_FORWARD = 0.5;
+/** player-set.glb 머리 위 양손. */
+export const SET_HAND_HEIGHT = 2.28;
+export const SET_HAND_FORWARD = -0.07;
+/** player-block.glb 점프 블로킹 손끝. */
+export const BLOCK_HAND_HEIGHT = 2.55;
+export const BLOCK_HAND_FORWARD = 0.16;
 export const HEIGHT_MIN = 0.3;
 export const HEIGHT_MAX = 2.7;
 export const HEIGHT_FLIGHT_MAX = 5.4;
@@ -188,8 +203,87 @@ function analyzeObjects(objects: CourtObject[], court: CourtType): CutBall {
   };
 }
 
+function snapToPoseHands(
+  state: CutBall,
+  player: CourtObject,
+  court: CourtType,
+  height: number,
+  forward: number,
+  zone: ContactZone,
+): CutBall {
+  const { length } = courtMeters(court);
+  const towardNet = isOpponent(player) ? -1 : 1;
+  return {
+    ...state,
+    x: player.x,
+    y: player.y + (towardNet * forward) / length,
+    height,
+    zone,
+    playerId: player.id,
+    playerX: player.x,
+    playerY: player.y,
+  };
+}
+
+function applyPoseContact(
+  state: CutBall,
+  cut: Cut,
+  cuts: Cut[],
+  cutIndex: number,
+  court: CourtType,
+): CutBall {
+  const ball = ballOf(cut.objects);
+  if (!ball) return state;
+  const near = nearestPlayer(ball, cut.objects);
+  if (!near.player || near.dist > CONTACT_NORM) return state;
+  const pose = poseMapAtPlayhead(cuts, cutIndex)[near.player.id];
+  if (pose === "receive") {
+    return snapToPoseHands(
+      state,
+      near.player,
+      court,
+      RECEIVE_HAND_HEIGHT,
+      RECEIVE_HAND_FORWARD,
+      "lower",
+    );
+  }
+  if (pose === "set") {
+    return snapToPoseHands(
+      state,
+      near.player,
+      court,
+      SET_HAND_HEIGHT,
+      SET_HAND_FORWARD,
+      "upper",
+    );
+  }
+  if (pose === "block") {
+    return snapToPoseHands(
+      state,
+      near.player,
+      court,
+      BLOCK_HAND_HEIGHT,
+      BLOCK_HAND_FORWARD,
+      "air",
+    );
+  }
+  if (pose === "spike") {
+    return snapToPoseHands(
+      state,
+      near.player,
+      court,
+      SPIKE_HAND_HEIGHT,
+      SPIKE_HAND_FORWARD,
+      "upper",
+    );
+  }
+  return state;
+}
+
 function analyzeCuts(cuts: Cut[], court: CourtType): CutBall[] {
-  return cuts.map((cut) => analyzeObjects(cut.objects, court));
+  return cuts.map((cut, i) =>
+    applyPoseContact(analyzeObjects(cut.objects, court), cut, cuts, i, court),
+  );
 }
 
 function passMeters(

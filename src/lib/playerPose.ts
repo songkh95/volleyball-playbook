@@ -1,11 +1,12 @@
 import type { CourtObject, Cut, PlayerPose } from "../types/play";
 
-export const PLAYER_POSES: PlayerPose[] = ["idle", "receive", "set", "spike"];
+export const PLAYER_POSES: PlayerPose[] = ["idle", "receive", "set", "spike", "block"];
 
 export function poseLabel(pose: PlayerPose) {
   if (pose === "receive") return "리시브";
   if (pose === "set") return "토스";
   if (pose === "spike") return "스파이크";
+  if (pose === "block") return "블로킹";
   return "대기";
 }
 
@@ -13,6 +14,7 @@ export function poseShort(pose: PlayerPose | null | undefined) {
   if (pose === "receive") return "리";
   if (pose === "set") return "토";
   if (pose === "spike") return "스";
+  if (pose === "block") return "블";
   return null;
 }
 
@@ -37,7 +39,7 @@ function poseLeadInOf(o: CourtObject) {
 }
 
 /**
- * 리시브·토스·스파이크 공통.
+ * 리시브·토스·스파이크·블로킹 공통.
  * 이 장면만: 그 장면 시작(playhead=cut)부터 다음 장면 도착 직전까지.
  * 이전부터: 바로 앞 장면 시작부터 이 장면이 끝날 때까지.
  * 구간이 겹치면 뒤 장면 자세가 이긴다.

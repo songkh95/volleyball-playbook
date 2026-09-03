@@ -1,0 +1,18 @@
+---
+description: Pro Tactical Dark 디자인 기준. UI를 만지거나 새 기능을 넣을 때 항상 적용.
+alwaysApply: true
+---
+
+# Pro Tactical Dark
+
+시각 기준은 `src/design/tokens.css`다. Canvas/3D hex는 `src/design/tokens.ts`와 같은 값이어야 한다.
+
+- 배경은 딥 블랙(`bg-ink`). 코트·선수·동선만 밝게.
+- hex는 `src/design/tokens.css`의 `:root`에만 둔다. Tailwind 매핑은 `src/index.css`의 `@theme`가 `--td-*`를 가리킨다.
+- 헤더, 툴바, 메뉴, 타임라인, 모달, 카드는 `glass` 또는 `glass-bar`.
+- 선택/저장 등 primary는 `bg-accent text-ink`. 흰 필 버튼 쓰지 말 것.
+- 고스트 버튼은 투명 + `ring-line` 또는 `border-white/15`.
+- 컴포넌트에 일회용 hex를 넣지 말 것. 새 색이 필요하면 tokens.css와 tokens.ts를 먼저 수정.
+- 우리팀 기본 `#FF3B3B`, 상대팀 기본 `#3B8BFF`. 레거시 블루 `#1565C0`도 상대로 본다.
+- 장식 그라데이션·네온 테두리 남발 금지. 글래스는 한 레이어.
+- 미리보기 `public/tactical-dark-preview.html`은 느낌 확인용. 구현 기준은 tokens.css.

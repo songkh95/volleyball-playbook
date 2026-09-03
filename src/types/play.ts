@@ -5,7 +5,7 @@ export type RosterSize = 6 | 9;
 export type ObjKind = "player" | "ball" | "cone" | "text";
 export type PlayerTeam = "ours" | "opp";
 export type BallFlight = "fast" | "slow" | "spike";
-export type PlayerPose = "idle" | "receive" | "set" | "spike";
+export type PlayerPose = "idle" | "receive" | "set" | "spike" | "block";
 
 /** 공에서 퍼지는 낙하 부채꼴. heading 0은 상대 엔드(+y). */
 export type LandingFan = {

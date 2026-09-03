@@ -7,6 +7,7 @@ import { zoneCells } from "../lib/zones";
 import { isLightColor } from "../lib/colors";
 import { ACCENT, COURT_FILL, COURT_LINE, LABEL_ON_LIGHT, STAGE_BG } from "../design/tokens";
 import { poseShort } from "../lib/playerPose";
+import { EXPORT_WIDTH } from "../lib/exportMovie";
 import type { Trail } from "../lib/interpolate";
 import { resolveStrokeKind } from "../lib/stroke";
 import type {
@@ -109,7 +110,7 @@ export type CourtViewSnap = {
 
 export type CourtCanvasHandle = {
   toPngBlob: () => Promise<Blob>;
-  captureViews: (views: CourtViewSnap[]) => Promise<ImageData[]>;
+  captureViews: (views: CourtViewSnap[], maxWidth?: number) => Promise<ImageData[]>;
 };
 
 type Props = {
@@ -124,10 +125,12 @@ type Props = {
   drawKind?: StrokeKind;
   interactive?: boolean;
   selectedIds?: string[];
+  placingId?: string | null;
   onMove: (id: string, x: number, y: number) => void;
   onMoveMany?: (moves: { id: string; x: number; y: number }[]) => void;
   onMoveBegin?: () => void;
   onSelectPlayer: (id: string, additive?: boolean) => void;
+  onPlacePlayer?: (id: string) => void;
   onSelectIds?: (ids: string[]) => void;
   onSelectNone?: () => void;
   onSelectionMenu?: (pos: { x: number; y: number }) => void;
@@ -155,10 +158,12 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
     drawKind = "arrow",
     interactive = true,
     selectedIds = [],
+    placingId = null,
     onMove,
     onMoveMany,
     onMoveBegin,
     onSelectPlayer,
+    onPlacePlayer,
     onSelectIds,
     onSelectNone,
     onSelectionMenu,
@@ -186,6 +191,9 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   const showCoverageRef = useRef(showCoverage);
   const holeAlphaRef = useRef(holeAlpha);
   const selectedIdsRef = useRef(selectedIds);
+  const placingIdRef = useRef(placingId);
+  const longPressRef = useRef(0);
+  const placeArmedRef = useRef(false);
   const marqueeRef = useRef<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const rectRef = useRef<CourtRect>({ x: 0, y: 0, w: 1, h: 1 });
   const dragRef = useRef<{
@@ -241,6 +249,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   showCoverageRef.current = showCoverage;
   holeAlphaRef.current = holeAlpha;
   selectedIdsRef.current = selectedIds;
+  placingIdRef.current = placingId;
 
   const paint = useRef(() => {});
 
@@ -285,6 +294,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         snapX: snapGuideRef.current?.x,
         snapY: snapGuideRef.current?.y,
         selectedIds: selectedIdsRef.current,
+        focusId: placingIdRef.current,
         marquee: marqueeRef.current,
       },
       ballSpinRef.current,
@@ -305,7 +315,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
 
   useEffect(() => {
     paint.current();
-  }, [objects, poseByPlayerId, court, trails, strokes, zoneMode, drawColor, drawKind, showCoverage, holeAlpha, selectedIds]);
+  }, [objects, poseByPlayerId, court, trails, strokes, zoneMode, drawColor, drawKind, showCoverage, holeAlpha, selectedIds, placingId]);
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -338,6 +348,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
   useEffect(() => {
     return () => {
       if (laserRafRef.current) window.cancelAnimationFrame(laserRafRef.current);
+      if (longPressRef.current) window.clearTimeout(longPressRef.current);
     };
   }, []);
 
@@ -355,7 +366,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
         }, "image/png");
       });
     },
-    async captureViews(views) {
+    async captureViews(views, maxWidth = EXPORT_WIDTH) {
       const wrap = wrapRef.current;
       if (!wrap || wrap.clientWidth < 8 || wrap.clientHeight < 8) {
         throw new Error("코트를 캡처할 수 없습니다.");
@@ -364,7 +375,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
       await waitForConeSprite();
       const srcW = wrap.clientWidth;
       const srcH = wrap.clientHeight;
-      const scale = Math.min(1, 360 / srcW);
+      const scale = Math.min(1, maxWidth / srcW);
       const w = Math.max(1, Math.round(srcW * scale));
       const h = Math.max(1, Math.round(srcH * scale));
       const off = document.createElement("canvas");
@@ -446,8 +457,32 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             return;
           }
           if (!interactiveRef.current) return;
+          if (longPressRef.current) {
+            window.clearTimeout(longPressRef.current);
+            longPressRef.current = 0;
+          }
+          placeArmedRef.current = false;
           const toolNow = toolRef.current;
           const hit = hitTest(e, wrap, rectRef.current, objectsRef.current, zoomRef.current);
+          const focusId = placingIdRef.current;
+          if (focusId) {
+            if (toolNow !== "select") {
+              e.preventDefault();
+              return;
+            }
+            if (!hit || hit.id !== focusId) {
+              if (!hit) {
+                panRef.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  tx: zoomRef.current.tx,
+                  ty: zoomRef.current.ty,
+                };
+              }
+              e.preventDefault();
+              return;
+            }
+          }
           if (toolNow === "eraser") {
             eraseRef.current = true;
             onEraseBegin?.();
@@ -473,7 +508,7 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             return;
           }
           if (toolNow === "select" && !hit) {
-            if (!canMarqueeSelect(e) || zoomRef.current.scale > 1.001) {
+            if (focusId || !canMarqueeSelect(e) || zoomRef.current.scale > 1.001) {
               panRef.current = {
                 x: e.clientX,
                 y: e.clientY,
@@ -495,9 +530,9 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             return obj && obj.kind !== "ball";
           });
           const groupIds =
-            hit.kind !== "ball" && selected.includes(hit.id) && selected.length > 1
-              ? selected
-              : [hit.id];
+            focusId || hit.kind === "ball" || !selected.includes(hit.id) || selected.length <= 1
+              ? [hit.id]
+              : selected;
           const group = objectsRef.current
             .filter((o) => groupIds.includes(o.id))
             .map((o) => ({ id: o.id, x: o.x, y: o.y }));
@@ -512,6 +547,18 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
             group,
             additive: e.shiftKey,
           };
+          if (
+            !focusId &&
+            hit.kind === "player" &&
+            (e.pointerType === "touch" || e.pointerType === "pen")
+          ) {
+            const id = hit.id;
+            longPressRef.current = window.setTimeout(() => {
+              longPressRef.current = 0;
+              placeArmedRef.current = true;
+              onPlacePlayer?.(id);
+            }, 500);
+          }
           e.preventDefault();
         }}
         onPointerMove={(e) => {
@@ -610,6 +657,10 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
               return;
             }
             drag.moved = true;
+            if (longPressRef.current) {
+              window.clearTimeout(longPressRef.current);
+              longPressRef.current = 0;
+            }
             onMoveBegin?.();
           }
           const p = clampToCanvas(
@@ -714,8 +765,18 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           const drag = dragRef.current;
           dragRef.current = null;
           snapGuideRef.current = null;
+          if (longPressRef.current) {
+            window.clearTimeout(longPressRef.current);
+            longPressRef.current = 0;
+          }
           if (drag) {
             if (!drag.moved) {
+              if (placeArmedRef.current) {
+                placeArmedRef.current = false;
+                paint.current();
+                e.preventDefault();
+                return;
+              }
               const obj = objectsRef.current.find((o) => o.id === drag.id);
               if (obj) {
                 if (obj.kind === "ball") {
@@ -765,10 +826,23 @@ export const CourtCanvas = forwardRef<CourtCanvasHandle, Props>(function CourtCa
           eraseRef.current = false;
           penRef.current = null;
           livePenRef.current = [];
+          placeArmedRef.current = false;
+          if (longPressRef.current) {
+            window.clearTimeout(longPressRef.current);
+            longPressRef.current = 0;
+          }
           paint.current();
         }}
         onContextMenu={(e) => {
           e.preventDefault();
+          if (placingIdRef.current) return;
+          const wrap = wrapRef.current;
+          if (!wrap || !interactiveRef.current) return;
+          const hit = hitTest(e, wrap, rectRef.current, objectsRef.current, zoomRef.current);
+          if (hit?.kind === "player") {
+            onPlacePlayer?.(hit.id);
+            return;
+          }
           const ids = selectedIdsRef.current.filter((id) => {
             const obj = objectsRef.current.find((o) => o.id === id);
             return obj && obj.kind !== "ball";
@@ -821,6 +895,7 @@ type Scene = {
   snapX?: number;
   snapY?: number;
   selectedIds?: string[];
+  focusId?: string | null;
   marquee?: { x0: number; y0: number; x1: number; y1: number } | null;
 };
 
@@ -941,6 +1016,26 @@ function paintScene(
     ctx.restore();
   }
   ctx.restore();
+  if (scene.focusId) {
+    ctx.fillStyle = "rgba(0,0,0,0.58)";
+    ctx.fillRect(0, 0, cssW, cssH);
+    const focus = scene.objects.find((o) => o.id === scene.focusId);
+    if (focus) {
+      ctx.save();
+      ctx.translate(zoom.tx, zoom.ty);
+      ctx.scale(zoom.scale, zoom.scale);
+      drawObject(
+        ctx,
+        rect,
+        focus,
+        ballSpin,
+        lastBallPos,
+        true,
+        scene.poseByPlayerId?.[focus.id],
+      );
+      ctx.restore();
+    }
+  }
   return rect;
 }
 
