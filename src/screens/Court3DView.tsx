@@ -1,4 +1,4 @@
-import { OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
+import { PerspectiveCamera, useGLTF } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   forwardRef,
@@ -10,16 +10,18 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import * as THREE from "three";
-import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ballPoseAtPlayhead, type BallPose } from "../lib/ballFlight";
 import { playerActionPose } from "../lib/playerPose";
 import {
   BALL_RADIUS,
+  clampCameraInGym,
   courtToWorld,
   getCameraPose,
+  GYM_SIZE,
   NET_BOTTOM,
   NET_HEIGHT,
   PLAYER_HEIGHT,
@@ -44,6 +46,12 @@ type ThreeApi = {
   gl: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.Camera;
+};
+
+type CameraLookApi = {
+  pan: (dx: number, dy: number, viewH: number) => void;
+  rotate: (dx: number, dy: number) => void;
+  dolly: (factor: number) => void;
 };
 
 export type Court3DHandle = {
@@ -78,6 +86,17 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
   ref,
 ) {
   const apiRef = useRef<ThreeApi | null>(null);
+  const lookRef = useRef<CameraLookApi | null>(null);
+  const blockLookRef = useRef(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const lookDragRef = useRef<{
+    panId: number | null;
+    rotateId: number | null;
+    lastX: number;
+    lastY: number;
+    pinchDist: number;
+  }>({ panId: null, rotateId: null, lastX: 0, lastY: 0, pinchDist: 0 });
   const exportHeadRef = useRef<number | null>(null);
   const [, setTick] = useState(0);
 
@@ -114,17 +133,110 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
     },
   }));
 
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      lookRef.current?.dolly(Math.exp(ev.deltaY * 0.0012));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   const pose = getCameraPose(props.cameraPreset, props.court);
+
+  function endLookPointer(id: number) {
+    pointersRef.current.delete(id);
+    const drag = lookDragRef.current;
+    if (drag.panId === id) drag.panId = null;
+    if (drag.rotateId === id) drag.rotateId = null;
+    if (pointersRef.current.size === 0) blockLookRef.current = false;
+  }
+
+  function onLookPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (props.placingId) return;
+    if (blockLookRef.current) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* capture is optional */
+    }
+    const drag = lookDragRef.current;
+    if (pointersRef.current.size >= 2) {
+      drag.panId = null;
+      const pts = [...pointersRef.current.values()];
+      drag.pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      drag.rotateId = e.pointerId;
+      drag.lastX = e.clientX;
+      drag.lastY = e.clientY;
+      return;
+    }
+    if (e.button === 2 || e.shiftKey) drag.rotateId = e.pointerId;
+    else if (e.isPrimary !== false) drag.panId = e.pointerId;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+  }
+
+  function onLookPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const prev = pointersRef.current.get(e.pointerId);
+    if (prev) pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (blockLookRef.current) return;
+    const look = lookRef.current;
+    if (!look) return;
+    const drag = lookDragRef.current;
+    if (
+      drag.panId !== e.pointerId &&
+      drag.rotateId !== e.pointerId &&
+      pointersRef.current.size < 2
+    ) {
+      return;
+    }
+    const h = Math.max(1, e.currentTarget.clientHeight);
+
+    if (pointersRef.current.size >= 2) {
+      const pts = [...pointersRef.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (drag.pinchDist > 1 && dist > 1) look.dolly(drag.pinchDist / dist);
+      drag.pinchDist = dist;
+      look.rotate(e.clientX - (prev?.x ?? e.clientX), e.clientY - (prev?.y ?? e.clientY));
+      return;
+    }
+
+    const dx = e.clientX - drag.lastX;
+    const dy = e.clientY - drag.lastY;
+    drag.lastX = e.clientX;
+    drag.lastY = e.clientY;
+    if (dx === 0 && dy === 0) return;
+    if (drag.panId === e.pointerId) look.pan(dx, dy, h);
+    else if (drag.rotateId === e.pointerId) look.rotate(dx, dy);
+  }
+
+  function onLookPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    endLookPointer(e.pointerId);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  }
 
   return (
     <div
-      className="absolute inset-0"
-      style={{ background: "#5d6774" }}
+      ref={wrapRef}
+      className="absolute inset-0 touch-none overscroll-none"
+      style={{ background: "#5d6774", touchAction: "none" }}
       onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={onLookPointerDown}
+      onPointerMove={onLookPointerMove}
+      onPointerUp={onLookPointerUp}
+      onPointerCancel={onLookPointerUp}
+      onLostPointerCapture={onLookPointerUp}
     >
       <Canvas
-        className="absolute inset-0 h-full w-full touch-none"
-        style={{ width: "100%", height: "100%", display: "block" }}
+        className="absolute inset-0 h-full w-full"
+        style={{ width: "100%", height: "100%" }}
         resize={{ debounce: 0, scroll: false }}
         gl={{
           antialias: true,
@@ -149,7 +261,13 @@ export const Court3DView = forwardRef<Court3DHandle, Props>(function Court3DView
         }}
       >
         <CaptureBridge apiRef={apiRef} />
-        <Scene {...sceneProps} />
+        <CameraLook
+          api={lookRef}
+          preset={sceneProps.cameraPreset}
+          court={sceneProps.court}
+          nonce={sceneProps.cameraNonce}
+        />
+        <Scene {...sceneProps} blockLookRef={blockLookRef} />
       </Canvas>
     </div>
   );
@@ -219,7 +337,7 @@ function waitFrames(count: number) {
   });
 }
 
-function Scene(props: Props) {
+function Scene(props: Props & { blockLookRef: MutableRefObject<boolean> }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const dragBegan = useRef(false);
   const longPressRef = useRef(0);
@@ -253,6 +371,7 @@ function Scene(props: Props) {
 
   function beginDrag(id: string) {
     if (placingId && id !== placingId) return;
+    props.blockLookRef.current = true;
     props.onPointerStart?.();
     dragBegan.current = false;
     setDragId(id);
@@ -291,7 +410,7 @@ function Scene(props: Props) {
           color="#ffffff"
         />
       ) : null}
-      <Gym court={props.court} />
+      <Gym />
       <CourtSurface court={props.court} />
       {placing ? (
         <mesh
@@ -408,12 +527,6 @@ function Scene(props: Props) {
       {props.strokes.map((stroke) => (
         <FloorStroke key={stroke.id} stroke={stroke} court={props.court} />
       ))}
-      <ViewControls
-        preset={props.cameraPreset}
-        court={props.court}
-        nonce={props.cameraNonce}
-        enableRotate={!dragId && !placing}
-      />
       {dragId ? (
         <DragFloor
           court={props.court}
@@ -421,6 +534,7 @@ function Scene(props: Props) {
           onMove={moveDrag}
           onUp={() => {
             clearLongPress();
+            props.blockLookRef.current = false;
             setDragId(null);
           }}
         />
@@ -466,81 +580,102 @@ function DragFloor({
   );
 }
 
-function ViewControls({
+const _panX = new THREE.Vector3();
+const _panY = new THREE.Vector3();
+const _panShift = new THREE.Vector3();
+const _offset = new THREE.Vector3();
+
+function CameraLook({
+  api,
   preset,
   court,
   nonce,
-  enableRotate = true,
 }: {
+  api: MutableRefObject<CameraLookApi | null>;
   preset: CameraCorner;
   court: CourtType;
   nonce: number;
-  enableRotate?: boolean;
 }) {
-  const controlsRef = useRef<OrbitControlsImpl>(null);
-  const pose = getCameraPose(preset, court);
-  const { camera, invalidate } = useThree();
-  const poseKey = `${preset}:${court}:${nonce}`;
-  const appliedKey = useRef("");
+  const camera = useThree((s) => s.camera);
+  const invalidate = useThree((s) => s.invalidate);
+  const target = useRef(new THREE.Vector3());
+  const spherical = useRef(new THREE.Spherical());
+  const courtRef = useRef(court);
+  courtRef.current = court;
 
-  const applyPose = () => {
-    const c = controlsRef.current;
-    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
+  const applyLook = () => {
+    clampCameraInGym(camera.position, target.current, courtRef.current);
     camera.up.set(0, 1, 0);
-    camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
-    if (c) {
-      c.object.position.copy(camera.position);
-      c.target.set(pose.target.x, pose.target.y, pose.target.z);
-      c.update();
-    }
+    camera.lookAt(target.current);
     invalidate();
   };
 
+  const applyPose = () => {
+    const pose = getCameraPose(preset, court);
+    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
+    target.current.set(pose.target.x, pose.target.y, pose.target.z);
+    applyLook();
+  };
+
+  api.current = {
+    pan(dx, dy, viewH) {
+      const dist = camera.position.distanceTo(target.current);
+      const fov = "fov" in camera ? Number(camera.fov) : 40;
+      const td = dist * Math.tan((fov * Math.PI) / 360);
+      const h = Math.max(1, viewH);
+      camera.updateMatrixWorld();
+      _panX.setFromMatrixColumn(camera.matrix, 0).multiplyScalar((-2 * dx * td) / h);
+      _panY.setFromMatrixColumn(camera.matrix, 1).multiplyScalar((2 * dy * td) / h);
+      _panShift.copy(_panX).add(_panY);
+      camera.position.add(_panShift);
+      target.current.add(_panShift);
+      applyLook();
+    },
+    rotate(dx, dy) {
+      _offset.copy(camera.position).sub(target.current);
+      spherical.current.setFromVector3(_offset);
+      spherical.current.theta -= dx * 0.007;
+      spherical.current.phi = THREE.MathUtils.clamp(
+        spherical.current.phi - dy * 0.007,
+        0.18,
+        Math.PI / 2 - 0.12,
+      );
+      spherical.current.radius = THREE.MathUtils.clamp(spherical.current.radius, 8, 40);
+      _offset.setFromSpherical(spherical.current);
+      camera.position.copy(target.current).add(_offset);
+      applyLook();
+    },
+    dolly(factor) {
+      _offset.copy(camera.position).sub(target.current);
+      spherical.current.setFromVector3(_offset);
+      spherical.current.radius = THREE.MathUtils.clamp(
+        spherical.current.radius * factor,
+        8,
+        40,
+      );
+      _offset.setFromSpherical(spherical.current);
+      camera.position.copy(target.current).add(_offset);
+      applyLook();
+    },
+  };
+
   useLayoutEffect(() => {
-    appliedKey.current = "";
     applyPose();
     const id = requestAnimationFrame(applyPose);
     return () => cancelAnimationFrame(id);
-  }, [preset, court, nonce, pose.position.x, pose.position.y, pose.position.z, pose.target.x, pose.target.y, pose.target.z]);
+  }, [preset, court, nonce, camera]);
 
   useFrame(() => {
-    if (appliedKey.current === poseKey) return;
-    applyPose();
-    if (controlsRef.current) appliedKey.current = poseKey;
+    camera.lookAt(target.current);
   });
 
-  return (
-    <>
-      <PerspectiveCamera
-        makeDefault
-        fov={40}
-        near={0.2}
-        far={120}
-        position={[pose.position.x, pose.position.y, pose.position.z]}
-      />
-      <OrbitControls
-        ref={controlsRef}
-        enableDamping
-        dampingFactor={0.08}
-        enablePan={false}
-        enableRotate={enableRotate}
-        minDistance={8}
-        maxDistance={40}
-        minPolarAngle={0.18}
-        maxPolarAngle={Math.PI / 2 - 0.12}
-        target={[pose.target.x, pose.target.y, pose.target.z]}
-        rotateSpeed={0.72}
-        zoomSpeed={0.85}
-      />
-    </>
-  );
+  return <PerspectiveCamera makeDefault fov={40} near={0.2} far={120} />;
 }
 
-function Gym({ court }: { court: CourtType }) {
-  const { width, length } = courtMeters(court);
-  const floorW = 38;
-  const floorL = 52;
-  const wallH = 11;
+function Gym() {
+  const floorW = GYM_SIZE.width;
+  const floorL = GYM_SIZE.length;
+  const wallH = GYM_SIZE.wallH;
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]} receiveShadow>
@@ -567,22 +702,6 @@ function Gym({ court }: { court: CourtType }) {
         <planeGeometry args={[floorW, floorL]} />
         <meshStandardMaterial color="#8b95a3" />
       </mesh>
-      {([1, -1] as const).map((side) =>
-        [0, 1, 2, 3].map((step) => (
-          <mesh
-            key={`${side}-${step}`}
-            position={[
-              side * (width / 2 + 6.2 + step * 0.55),
-              0.22 + step * 0.34,
-              0,
-            ]}
-            receiveShadow
-          >
-            <boxGeometry args={[0.5, 0.44 + step * 0.08, length + 5]} />
-            <meshStandardMaterial color={step % 2 === 0 ? "#3b465c" : "#323c50"} />
-          </mesh>
-        )),
-      )}
     </group>
   );
 }

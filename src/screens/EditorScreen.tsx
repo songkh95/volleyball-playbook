@@ -1495,7 +1495,7 @@ export function EditorScreen({
             </div>
             {!placingId ? (
             <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[10px] text-white/70">
-              드래그로 선수·공을 옮깁니다. 빈 곳을 드래그하면 카메라가 돕니다.
+              드래그로 선수·공을 옮깁니다. 빈 곳을 드래그하면 화면이 이동하고, 우클릭(또는 두 손가락)으로 회전합니다.
             </p>
             ) : null}
               </>
